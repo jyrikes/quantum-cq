@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Sequence
 from numbers import Real
 from typing import Any
@@ -497,7 +498,8 @@ class CQ:
         reps: int = 1,
         idle_wires: bool = True,
         scale: float = 0.75,
-    ) -> Any:
+        output: str = "mpl",
+    ) -> None:
         _ = metrics, metadata
         CQ.describe(obj)
         if draw:
@@ -507,14 +509,17 @@ class CQ:
                 reps=reps,
                 idle_wires=idle_wires,
                 scale=scale,
+                output=output,
             )
             try:
                 from IPython.display import display
 
                 display(drawing)
             except Exception:
-                print(drawing)
-        return obj
+                text = str(drawing)
+                encoding = sys.stdout.encoding or "utf-8"
+                print(text.encode(encoding, errors="replace").decode(encoding, errors="replace"))
+        return None
 
     @staticmethod
     def notebook_logs(level: int | str = "INFO") -> None:

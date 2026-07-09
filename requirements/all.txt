@@ -3,6 +3,7 @@ qiskit-aer
 qiskit-ibm-runtime
 pandas
 matplotlib
+pylatexenc
 ipython
 ipywidgets
 pytest

@@ -1,5 +1,6 @@
 -r base.txt
 pandas
 matplotlib
+pylatexenc
 ipython
 ipywidgets

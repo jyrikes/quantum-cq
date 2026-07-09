@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quantum-cq"
-version = "0.1.0"
+version = "0.1.1"
 description = "Compact quantum circuit helpers, encodings, algorithms, navigation and Qiskit interop."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,13 +35,14 @@ dependencies = [
 [project.optional-dependencies]
 aer = ["qiskit-aer"]
 ibm = ["qiskit-ibm-runtime"]
-notebook = ["pandas", "matplotlib", "ipython", "ipywidgets"]
+notebook = ["pandas", "matplotlib", "pylatexenc", "ipython", "ipywidgets"]
 dev = ["pytest", "build", "twine"]
 all = [
     "qiskit-aer",
     "qiskit-ibm-runtime",
     "pandas",
     "matplotlib",
+    "pylatexenc",
     "ipython",
     "ipywidgets",
 ]

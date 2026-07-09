@@ -87,7 +87,7 @@ def test_draw_describe_show_do_not_break(monkeypatch):
     monkeypatch.setattr(CQ, "to_qiskit", staticmethod(lambda _: qc))
 
     assert CQ.draw(obj, output="mpl") is not None
-    assert CQ.show(obj) is obj
+    assert CQ.show(obj) is None
 
 
 def test_pipeline_shortcuts_preserve_old_builder():
