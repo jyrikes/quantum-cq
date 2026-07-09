@@ -1,4 +1,5 @@
 import logging
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -6,6 +7,7 @@ from qiskit import QuantumCircuit
 
 from quantum_cq import CQ
 from quantum_cq.experiment import (
+    ExperimentResult,
     ExperimentPlan,
     PipelineResult,
     apply_measurement_policy,
@@ -256,6 +258,52 @@ def test_cq_run_multiple_circuits_ideal_returns_pipeline_result():
         frame = result.to_dataframe()
         assert isinstance(frame, pd.DataFrame)
         assert {"experiment_id", "circuit_id", "mode", "status"}.issubset(frame.columns)
+
+
+def test_pipeline_result_serializes_without_pandas():
+    result = PipelineResult(
+        title="Relatorio ágil",
+        experiments=[
+            ExperimentResult(
+                experiment_id="exp-001",
+                mode="ideal",
+                circuit_id="circuit-000",
+                dataset_id="dataset-000",
+                encoder="basis",
+                counts={"0": 3, "1": 1},
+                metrics={"original": {"size": 2, "custom": object()}},
+                job_id="job-001",
+                backend_name="simulator",
+                status="completed",
+                error=None,
+            )
+        ],
+    )
+
+    experiment_payload = result.experiments[0].to_dict()
+    assert {
+        "experiment_id",
+        "mode",
+        "circuit_id",
+        "dataset_id",
+        "encoder",
+        "counts",
+        "metrics",
+        "job_id",
+        "backend_name",
+        "status",
+        "error",
+    }.issubset(experiment_payload)
+    assert isinstance(experiment_payload["metrics"]["original"]["custom"], str)
+
+    payload = result.to_dict()
+    assert set(payload) == {"title", "summary", "global_metrics", "experiments"}
+    assert payload["title"] == "Relatorio ágil"
+    assert payload["experiments"][0]["experiment_id"] == "exp-001"
+
+    decoded = json.loads(result.to_json())
+    assert decoded["title"] == "Relatorio ágil"
+    assert decoded["experiments"][0]["counts"] == {"0": 3, "1": 1}
 
 
 def test_cq_run_multiple_encoders_tracks_encoder_metrics():

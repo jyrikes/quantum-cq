@@ -36,7 +36,7 @@ dependencies = [
 aer = ["qiskit-aer"]
 ibm = ["qiskit-ibm-runtime"]
 notebook = ["pandas", "matplotlib", "pylatexenc", "ipython", "ipywidgets"]
-dev = ["pytest", "build", "twine"]
+dev = ["pytest", "pytest-cov", "build", "twine", "ruff"]
 all = [
     "qiskit-aer",
     "qiskit-ibm-runtime",

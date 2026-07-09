@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -46,6 +47,19 @@ def _listify(single: Any = None, multiple: Any = None) -> list[Any]:
 def _mode_name(mode: Any) -> str:
     value = getattr(mode, "value", mode)
     return str(value).lower()
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {
+            key if isinstance(key, (str, int, float, bool)) or key is None else str(key): _json_safe(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return str(value)
 
 
 def _has_measurements(circuit: QuantumCircuit) -> bool:
@@ -215,6 +229,21 @@ class ExperimentResult:
     status: str = "pending"
     error: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "experiment_id": self.experiment_id,
+            "mode": self.mode,
+            "circuit_id": self.circuit_id,
+            "dataset_id": self.dataset_id,
+            "encoder": self.encoder,
+            "counts": _json_safe(self.counts),
+            "metrics": _json_safe(self.metrics),
+            "job_id": self.job_id,
+            "backend_name": self.backend_name,
+            "status": self.status,
+            "error": self.error,
+        }
+
 
 @dataclass
 class PipelineResult:
@@ -280,6 +309,17 @@ class PipelineResult:
             "total_jobs": len(job_ids),
             "metrics": aggregate,
         }
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "title": self.title,
+            "summary": _json_safe(self.summary()),
+            "global_metrics": _json_safe(self.global_metrics()),
+            "experiments": [experiment.to_dict() for experiment in self.experiments],
+        }
+
+    def to_json(self, indent: int | None = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
 
     def by_mode(self) -> dict[str, list[ExperimentResult]]:
         return self._group_by("mode")

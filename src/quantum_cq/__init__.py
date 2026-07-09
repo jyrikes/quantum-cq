@@ -1,5 +1,6 @@
 """quantum_cq package."""
 
+from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
 
 from quantum_cq._core.facade import CQ
@@ -69,6 +70,11 @@ from quantum_cq._core.settings import (
 )
 from quantum_cq._runtime.runtime import IBMRuntimeConfig
 
+try:
+    __version__ = version("quantum-cq")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
+
 if TYPE_CHECKING:
     from quantum_cq._runtime.experiment import (
         ExperimentPlan,
@@ -100,6 +106,7 @@ def __getattr__(name):
     raise AttributeError(f"module 'quantum_cq' has no attribute {name!r}")
 
 __all__ = [
+    "__version__",
     "CQ",
     "QuantumData",
     "QuantumResult",

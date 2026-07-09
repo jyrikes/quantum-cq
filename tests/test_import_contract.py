@@ -20,11 +20,45 @@ def _run_import_snippet(snippet: str) -> subprocess.CompletedProcess:
 
 def test_root_import_and_cq_contract_work_from_src():
     result = _run_import_snippet(
-        "import quantum_cq; from quantum_cq import CQ; print(CQ)"
+        "import quantum_cq; from quantum_cq import CQ; "
+        "assert isinstance(quantum_cq.__version__, str); "
+        "assert quantum_cq.__version__; print(CQ)"
     )
 
     assert result.returncode == 0, result.stderr
     assert "CQ" in result.stdout
+
+
+def test_root_import_leaves_optional_dependencies_unloaded():
+    optional = (
+        "qiskit_aer",
+        "qiskit_ibm_runtime",
+        "pandas",
+        "matplotlib",
+        "IPython",
+        "ipywidgets",
+    )
+    snippet = textwrap.dedent(
+        f"""
+        import sys
+        import quantum_cq
+
+        optional = {optional!r}
+        loaded = [
+            name
+            for name in optional
+            if any(module == name or module.startswith(name + ".") for module in sys.modules)
+        ]
+        assert not loaded, loaded
+        assert isinstance(quantum_cq.__version__, str)
+        assert quantum_cq.__version__
+        print(quantum_cq.__version__)
+        """
+    )
+
+    result = _run_import_snippet(snippet)
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_root_import_does_not_require_optional_heavy_dependencies():
@@ -112,3 +146,13 @@ def test_embedded_notebook_helpers_import_without_notebook_extra():
 
     assert result.returncode == 0, result.stderr
     assert "cq_embedded" in result.stdout
+
+
+def test_manifest_includes_release_test_inputs():
+    with open("MANIFEST.in", encoding="utf-8") as handle:
+        manifest = handle.read()
+
+    assert "include tests/conftest.py" in manifest
+    assert "recursive-include tests *.py" in manifest
+    assert "recursive-include docs *.md" in manifest
+    assert "include notebooks/*.ipynb" in manifest
