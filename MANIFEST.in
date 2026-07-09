@@ -1,0 +1,19 @@
+prune .pytest_cache
+prune .vscode
+prune logs
+prune results
+prune notebooks/experiments
+prune build
+prune dist
+prune src/quantum_cq.egg-info
+recursive-exclude src/quantum_cq.egg-info *
+exclude src/quantum_cq.egg-info/SOURCES.txt
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.pyo
+global-exclude *.log
+global-exclude *.executed.ipynb
+global-exclude .env
+global-exclude *.env
+global-exclude .env.*
+global-exclude .pypirc

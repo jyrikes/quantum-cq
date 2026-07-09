@@ -1,0 +1,10 @@
+-r base.txt
+qiskit-aer
+qiskit-ibm-runtime
+pandas
+matplotlib
+ipython
+ipywidgets
+pytest
+build
+twine
