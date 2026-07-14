@@ -5,7 +5,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from quantum_cq._circuits.compact import CircuitIR, CompactAdapter, QC, QiskitExporter
+from quantum_cq._circuits.compact import (
+    CircuitIR,
+    CompactAdapter,
+    LogicalCircuitBuilder,
+    LogicalCircuitFactory,
+    QC,
+    QiskitExporter,
+)
 from quantum_cq._core.results import AlgorithmCircuit, EncodedCircuit, NavigationCircuit, OperatorCircuit, OracleCircuit
 
 
@@ -14,13 +21,16 @@ def _require_qiskit() -> Any:
         from qiskit import QuantumCircuit
     except ImportError as exc:
         raise ImportError(
-            "Para exportar ou construir circuitos Qiskit, instale quantum-cq[qiskit]."
+            "Para exportar ou construir circuitos Qiskit, instale quantum-cq. "
+            "Qiskit e dependencia obrigatoria em quantum-cq 0.1.x."
         ) from exc
 
     return QuantumCircuit
 
 
 class QiskitCircuitBuilder:
+    target_format = "qiskit"
+
     def __init__(self, num_qubits: int, num_clbits: int = 0) -> None:
         QuantumCircuit = _require_qiskit()
         self._circuit = QuantumCircuit(num_qubits, num_clbits) if num_clbits else QuantumCircuit(num_qubits)
@@ -132,6 +142,8 @@ def export_to_qiskit(circuit_like) -> Any:
 
 __all__ = [
     "CompactAdapter",
+    "LogicalCircuitBuilder",
+    "LogicalCircuitFactory",
     "QiskitCircuitExporter",
     "QiskitCircuitBuilder",
     "QiskitCircuitFactory",

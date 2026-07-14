@@ -62,6 +62,7 @@ from quantum_cq._core.results import (
     OracleCircuit,
     QuantumResult,
 )
+from quantum_cq._engines.results import CompiledArtifact, EngineResult
 from quantum_cq._core.settings import (
     PipelineSettings,
     RuntimeSettings,
@@ -114,6 +115,8 @@ __all__ = [
     "AlgorithmCircuit",
     "AlgorithmSpec",
     "CompilerResult",
+    "CompiledArtifact",
+    "EngineResult",
     "OperatorCircuit",
     "OracleCircuit",
     "NavigationCircuit",

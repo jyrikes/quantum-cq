@@ -155,6 +155,7 @@ class ExplicitCircuitMemoryEngine:
     ) -> NavigationCircuit:
         total_qubits = memory.address_qubits + memory.data_qubits
         builder = _factory_or_default(circuit_factory).create(total_qubits)
+        circuit_format = getattr(builder, "target_format", "qiskit")
         controls = list(range(memory.address_qubits))
         skipped_zero_entries = 0
         nonzero_entries = 0
@@ -187,7 +188,7 @@ class ExplicitCircuitMemoryEngine:
         return NavigationCircuit(
             circuit=builder.build(),
             navigation_name="addressed_memory",
-            circuit_format="qiskit",
+            circuit_format=circuit_format,
             metadata=metadata,
         )
 

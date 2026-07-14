@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -292,6 +293,119 @@ class QC:
         return str(cell)
 
 
+class LogicalCircuitBuilder:
+    """Builder SDK-neutral backed by the existing CircuitIR."""
+
+    target_format = "ir"
+
+    def __init__(self, num_qubits: int, num_clbits: int = 0) -> None:
+        self._num_qubits = num_qubits
+        self._num_clbits = num_clbits
+        self._layers: list[Layer] = []
+
+    def x(self, qubit: int) -> None:
+        self._append(Operation("x", qubits=(qubit,)))
+
+    def h(self, qubit: int) -> None:
+        self._append(Operation("h", qubits=(qubit,)))
+
+    def rx(self, theta: float, qubit: int) -> None:
+        self._append(Operation("rx", qubits=(qubit,), params={"theta": theta}))
+
+    def ry(self, theta: float, qubit: int) -> None:
+        self._append(Operation("ry", qubits=(qubit,), params={"theta": theta}))
+
+    def rz(self, theta: float, qubit: int) -> None:
+        self._append(Operation("rz", qubits=(qubit,), params={"theta": theta}))
+
+    def p(self, theta: float, qubit: int) -> None:
+        self._append(Operation("p", qubits=(qubit,), params={"theta": theta}))
+
+    def cx(self, control: int, target: int) -> None:
+        self._append(
+            Operation(
+                "cx",
+                qubits=(control, target),
+                params={"control": control, "target": target},
+            )
+        )
+
+    def cz(self, control: int, target: int) -> None:
+        self._append(
+            Operation(
+                "cz",
+                qubits=(control, target),
+                params={"control": control, "target": target},
+            )
+        )
+
+    def cp(self, theta: float, control: int, target: int) -> None:
+        self._append(
+            Operation(
+                "cp",
+                qubits=(control, target),
+                params={"theta": theta, "control": control, "target": target},
+            )
+        )
+
+    def mcx(self, controls: Sequence[int], target: int) -> None:
+        controls_tuple = tuple(controls)
+        self._append(
+            Operation(
+                "mcx",
+                qubits=(*controls_tuple, target),
+                params={"controls": controls_tuple, "target": target},
+            )
+        )
+
+    def swap(self, left: int, right: int) -> None:
+        self._append(Operation("swap", qubits=(left, right), params={"left": left, "right": right}))
+
+    def unitary(self, matrix: Any, qubits: Sequence[int], label: str | None = None) -> None:
+        self._append(Operation("unitary", qubits=tuple(qubits), params={"matrix": matrix}, label=label))
+
+    def measure(self, qubit: int, clbit: int) -> None:
+        self._num_clbits = max(self._num_clbits, clbit + 1)
+        self._append(Operation("measure", qubits=(qubit,), clbits=(clbit,)))
+
+    def barrier(self) -> None:
+        self._append(Operation("barrier"))
+
+    def initialize(self, amplitudes: Sequence[complex], qubits: Sequence[int]) -> None:
+        self._append(
+            Operation(
+                "initialize",
+                qubits=tuple(qubits),
+                params={"amplitudes": tuple(amplitudes)},
+            )
+        )
+
+    def measure_all(self) -> None:
+        self._num_clbits = max(self._num_clbits, self._num_qubits)
+        for qubit in range(self._num_qubits):
+            self.measure(qubit, qubit)
+
+    def build(self) -> CircuitIR:
+        return CircuitIR(
+            name="logical_circuit",
+            n_qubits=self._num_qubits,
+            n_clbits=self._num_clbits,
+            inputs=[],
+            layers=list(self._layers),
+            outputs=[],
+        )
+
+    def _append(self, operation: Operation) -> None:
+        layer = Layer()
+        layer.add(operation)
+        self._layers.append(layer)
+
+
+class LogicalCircuitFactory:
+    def create(self, num_qubits: int, num_clbits: int = 0) -> LogicalCircuitBuilder:
+        return LogicalCircuitBuilder(num_qubits, num_clbits)
+
+
 # ============================================================
 # Adapter: QC -> CircuitIR
 # ============================================================
@@ -561,8 +675,48 @@ class QiskitExporter:
             getattr(qc, op.kind)(op.qubits[0])
             return
 
+        if op.kind in {"rx", "ry", "rz", "p"}:
+            getattr(qc, op.kind)(op.params["theta"], op.qubits[0])
+            return
+
         if op.kind == "cx":
             qc.cx(op.params["control"], op.params["target"])
+            return
+
+        if op.kind == "cz":
+            qc.cz(op.params["control"], op.params["target"])
+            return
+
+        if op.kind == "cp":
+            qc.cp(op.params["theta"], op.params["control"], op.params["target"])
+            return
+
+        if op.kind == "swap":
+            qc.swap(op.params["left"], op.params["right"])
+            return
+
+        if op.kind == "mcx":
+            qc.mcx(list(op.params["controls"]), op.params["target"])
+            return
+
+        if op.kind == "ccx":
+            qc.ccx(*op.qubits)
+            return
+
+        if op.kind == "measure":
+            qc.measure(op.qubits[0], op.clbits[0])
+            return
+
+        if op.kind == "barrier":
+            qc.barrier()
+            return
+
+        if op.kind == "initialize":
+            qc.initialize(list(op.params["amplitudes"]), list(op.qubits))
+            return
+
+        if op.kind == "unitary":
+            qc.unitary(op.params["matrix"], list(op.qubits), label=op.label)
             return
 
         if op.kind == "block":

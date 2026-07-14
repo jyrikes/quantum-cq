@@ -35,6 +35,10 @@ dependencies = [
 [project.optional-dependencies]
 aer = ["qiskit-aer"]
 ibm = ["qiskit-ibm-runtime"]
+pennylane = ["pennylane"]
+cirq = ["cirq"]
+braket = ["amazon-braket-sdk"]
+cudaq = ["cudaq"]
 notebook = ["pandas", "matplotlib", "pylatexenc", "ipython", "ipywidgets"]
 dev = ["pytest", "pytest-cov", "build", "twine", "ruff"]
 all = [

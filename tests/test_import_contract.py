@@ -33,6 +33,10 @@ def test_root_import_leaves_optional_dependencies_unloaded():
     optional = (
         "qiskit_aer",
         "qiskit_ibm_runtime",
+        "pennylane",
+        "cirq",
+        "braket",
+        "cudaq",
         "pandas",
         "matplotlib",
         "IPython",
@@ -65,6 +69,10 @@ def test_root_import_does_not_require_optional_heavy_dependencies():
     blocked = (
         "qiskit_aer",
         "qiskit_ibm_runtime",
+        "pennylane",
+        "cirq",
+        "braket",
+        "cudaq",
         "pandas",
         "matplotlib",
         "IPython",

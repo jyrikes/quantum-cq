@@ -558,6 +558,42 @@ class CQ:
         return ["qiskit"]
 
     @staticmethod
+    def engines() -> list[dict[str, Any]]:
+        from quantum_cq._engines.registry import engine_catalog
+
+        return engine_catalog()
+
+    @staticmethod
+    def engine_capabilities(engine: str) -> dict[str, Any]:
+        from quantum_cq._engines.registry import engine_capabilities
+
+        return engine_capabilities(engine)
+
+    @staticmethod
+    def emit(circuit_like: Any, engine: str = "qiskit", **options: Any) -> Any:
+        from quantum_cq._engines.registry import get_engine_adapter
+
+        return get_engine_adapter(engine).emit(circuit_like, **options)
+
+    @staticmethod
+    def compile(circuit_like: Any, engine: str = "qiskit", **options: Any) -> Any:
+        from quantum_cq._engines.registry import get_engine_adapter
+
+        return get_engine_adapter(engine).compile(circuit_like, **options)
+
+    @staticmethod
+    def run_engine(
+        circuit_like: Any,
+        engine: str = "qiskit",
+        *,
+        shots: int = 1024,
+        **options: Any,
+    ) -> Any:
+        from quantum_cq._engines.registry import get_engine_adapter
+
+        return get_engine_adapter(engine).run(circuit_like, shots=shots, **options)
+
+    @staticmethod
     def ibm(
         token: str,
         *,
