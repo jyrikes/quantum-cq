@@ -1,0 +1,62 @@
+"""Navigation Encoding v2 structural layer."""
+
+from quantum_cq._navigation.structural.adapter import StructuralNavigationInputAdapter
+from quantum_cq._navigation.structural.core import (
+    SUPPORTED_OPERATIONS,
+    SUPPORTED_PREDICATES,
+    build_navigation_v2,
+    build_plan,
+    canonicalize_heap,
+    lower_plan_to_ir,
+    resolve_rho,
+    structural_metrics,
+    validate_heap,
+    verify_plan,
+)
+from quantum_cq._navigation.structural.models import (
+    RhoDResult,
+    SemanticVerification,
+    StructuralEquivalenceClass,
+    StructuralField,
+    StructuralHeap,
+    StructuralNavigationError,
+    StructuralNavigationPlan,
+    StructuralNavigationResult,
+    StructuralNode,
+    StructuralOperation,
+    StructuralPointer,
+    StructuralReference,
+    StructuralSelector,
+    StructuralType,
+    StructuralValue,
+)
+
+__all__ = [
+    "SUPPORTED_OPERATIONS",
+    "SUPPORTED_PREDICATES",
+    "RhoDResult",
+    "SemanticVerification",
+    "StructuralEquivalenceClass",
+    "StructuralField",
+    "StructuralHeap",
+    "StructuralNavigationError",
+    "StructuralNavigationInputAdapter",
+    "StructuralNavigationPlan",
+    "StructuralNavigationResult",
+    "StructuralNode",
+    "StructuralOperation",
+    "StructuralPointer",
+    "StructuralReference",
+    "StructuralSelector",
+    "StructuralType",
+    "StructuralValue",
+    "build_navigation_v2",
+    "build_plan",
+    "canonicalize_heap",
+    "lower_plan_to_ir",
+    "resolve_rho",
+    "structural_metrics",
+    "validate_heap",
+    "verify_plan",
+]
+
