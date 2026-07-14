@@ -254,3 +254,9 @@ For a step-by-step walkthrough, open:
 ```text
 notebooks/quantum_cq_getting_started.ipynb
 ```
+
+For a full pipeline walkthrough with navigation and data recovery, open:
+
+```text
+notebooks/quantum_cq_full_pipeline_navigation.ipynb
+```

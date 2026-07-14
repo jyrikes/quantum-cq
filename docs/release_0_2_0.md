@@ -49,6 +49,15 @@ It walks through imports, state encodings, Qiskit export, V1 navigation,
 custom logical circuits, engine APIs, the unified pipeline, manual targets and
 Navigation V2.
 
+The complete navigation pipeline walkthrough is:
+
+```text
+notebooks/quantum_cq_full_pipeline_navigation.ipynb
+```
+
+It shows input data, query circuits, pipeline stages, snapshots, native
+transpilation records, measurements and V1/V2 data recovery.
+
 ## Limits
 
 This release does not claim physical QRAM, quantum advantage, automatic backend
