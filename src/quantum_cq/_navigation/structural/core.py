@@ -276,7 +276,11 @@ def build_plan(
     for value in memory_values:
         if value < 0 or value >= 2**output_width:
             raise StructuralNavigationError("saida da operacao nao cabe no registrador declarado")
-    metrics = structural_metrics(heap, access_distribution=access_distribution, spectral_limit=spectral_limit)
+    metrics = structural_metrics(
+        heap,
+        access_distribution=_canonical_access_distribution(access_distribution, equivalence),
+        spectral_limit=spectral_limit,
+    )
     layout = {
         "pointer": {"width": pointer_width, "codes": pointer_codes, "null_encoding": null_encoding},
         "selector": {"width": 0, "fixed": None if operation.selector is None else operation.selector.to_dict()},
@@ -466,6 +470,90 @@ def structural_metrics(
     elif spectral_limit is not None:
         metrics["spectral"] = {"status": "not_applicable", "reason": "spectral_limit exceeded"}
     return metrics
+
+
+def _canonical_access_distribution(
+    access_distribution: Mapping[str, float] | None,
+    equivalence: StructuralEquivalenceClass,
+) -> Mapping[str, float] | None:
+    if access_distribution is None:
+        return None
+    canonical_ids = set(equivalence.canonical_to_local)
+    canonicalized: dict[str, float] = {}
+    for key, value in access_distribution.items():
+        key_text = str(key)
+        canonical_key = key_text if key_text in canonical_ids else equivalence.local_to_canonical.get(key_text, key_text)
+        if canonical_key in canonicalized:
+            raise StructuralNavigationError("access_distribution contem entradas duplicadas apos canonicalizacao")
+        canonicalized[canonical_key] = float(value)
+    return canonicalized
+
+
+def structural_heap_to_graph_data(
+    heap: StructuralHeap,
+    *,
+    relation_role: str = "neighbor",
+    directed: bool = True,
+):
+    """Explicit lossy conversion from a structural heap relation to GraphData."""
+
+    from quantum_cq._navigation.memory import GraphData
+
+    validate_heap(heap)
+    nodes = tuple(node.local_node_id for node in heap.nodes)
+    index = {node_id: idx for idx, node_id in enumerate(nodes)}
+    edges: list[tuple[int, int]] = []
+    type_map = heap.type_map()
+    for node in heap.nodes:
+        node_type = type_map[node.type_id]
+        role_fields = [field for field in node_type.fields if field.semantic_role == relation_role]
+        if not role_fields:
+            continue
+        for field in role_fields:
+            if not field.ordered:
+                raise StructuralNavigationError("conversao para GraphData requer ordenacao semantica da relacao")
+            value = node.fields.get(field.name)
+            if value is None:
+                continue
+            targets = value if isinstance(value, (list, tuple)) else (value,)
+            for target in targets:
+                if target is None:
+                    continue
+                edges.append((index[node.local_node_id], index[str(target)]))
+    graph = GraphData(edges=tuple(edges), num_vertices=len(nodes), directed=directed)
+    graph.metadata = {
+        "navigation_version_source": "v2",
+        "conversion": "structural_heap_to_graph_data",
+        "relation_role": relation_role,
+        "losses": ("types", "field_values", "non_graph_relations"),
+        "limitations": ("semantic heap canonicalization is not WalkTopology port-labeling",),
+        "provenance": {"node_order": nodes},
+    }
+    return graph
+
+
+def structural_heap_to_walk_topology(
+    heap: StructuralHeap,
+    *,
+    relation_role: str = "neighbor",
+):
+    """Explicit conversion from a structural graph relation to finite walk topology."""
+
+    from quantum_cq._navigation.coined import build_walk_topology
+
+    graph = structural_heap_to_graph_data(heap, relation_role=relation_role, directed=True)
+    topology = build_walk_topology(graph)
+    return replace(
+        topology,
+        provenance={
+            **dict(topology.provenance),
+            "navigation_version_source": "v2",
+            "conversion": "structural_heap_to_walk_topology",
+            "relation_role": relation_role,
+            "losses": ("types", "field_values", "non_graph_relations"),
+            "limitations": ("heap canonicalization is not walk port-labeling",),
+        },
+    )
 
 
 def _validate_field_value(
@@ -861,10 +949,16 @@ def _spectral_small_graph(heap: StructuralHeap, edges: tuple[tuple[str, str], ..
         [degrees[row] if row == col else -adjacency[row][col] for col in range(len(nodes))]
         for row in range(len(nodes))
     ]
+    try:
+        import numpy as np
+
+        spectrum: Any = tuple(float(value) for value in np.linalg.eigvalsh(np.array(laplacian, dtype=float)))
+    except Exception as exc:
+        spectrum = f"not_computed:{type(exc).__name__}"
     return {
         "status": "computed",
         "adjacency": adjacency,
         "degrees": degrees,
         "laplacian": laplacian,
-        "spectrum": "not_computed_without_optional_dependency",
+        "spectrum": spectrum,
     }

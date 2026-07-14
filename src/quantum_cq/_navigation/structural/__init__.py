@@ -9,6 +9,8 @@ from quantum_cq._navigation.structural.core import (
     canonicalize_heap,
     lower_plan_to_ir,
     resolve_rho,
+    structural_heap_to_graph_data,
+    structural_heap_to_walk_topology,
     structural_metrics,
     validate_heap,
     verify_plan,
@@ -55,8 +57,9 @@ __all__ = [
     "canonicalize_heap",
     "lower_plan_to_ir",
     "resolve_rho",
+    "structural_heap_to_graph_data",
+    "structural_heap_to_walk_topology",
     "structural_metrics",
     "validate_heap",
     "verify_plan",
 ]
-

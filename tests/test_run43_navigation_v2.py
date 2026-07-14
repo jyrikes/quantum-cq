@@ -10,6 +10,7 @@ from quantum_cq import (
     StructuralType,
 )
 from quantum_cq._navigation.structural import StructuralNavigationError
+from quantum_cq.navigation import structural_heap_to_graph_data, structural_heap_to_walk_topology
 
 
 def _list_heap(ids=("a", "b"), values=(1, 2)):
@@ -230,3 +231,45 @@ def test_navigation_v1_defaults_remain_available_and_do_not_trigger_v2_stages():
 
     result = CQ.pipeline(circuit=nav).transpile()
     assert not any(stage.stage_id.startswith("navigation_v2_") for stage in result.scenario_results[0].stage_results)
+
+
+def test_navigation_v2_graph_and_walk_conversions_are_explicit():
+    heap = _graph_heap()
+
+    graph = structural_heap_to_graph_data(heap, relation_role="neighbor", directed=True)
+    topology = structural_heap_to_walk_topology(heap, relation_role="neighbor")
+
+    assert graph.num_vertices == 3
+    assert graph.directed is True
+    assert graph.metadata["navigation_version_source"] == "v2"
+    assert graph.metadata["conversion"] == "structural_heap_to_graph_data"
+    assert topology.vertices == (0, 1, 2)
+    assert topology.provenance["conversion"] == "structural_heap_to_walk_topology"
+
+    with pytest.raises(TypeError, match="GraphData"):
+        CQ.walk(heap)
+
+
+def test_navigation_v2_renyi_and_spectral_metrics_are_informational():
+    plain = CQ.navigation_v2(
+        _graph_heap(),
+        operation="neighbor",
+        selector=StructuralSelector.role("neighbor", index=0),
+    )
+    analyzed = CQ.navigation_v2(
+        _graph_heap(),
+        operation="neighbor",
+        selector=StructuralSelector.role("neighbor", index=0),
+        access_distribution={"v0": 0.5, "v1": 0.25, "v2": 0.25},
+        spectral_limit=4,
+    )
+
+    renyi = analyzed.plan.resource_estimates["renyi_h2"]
+    spectral = analyzed.plan.resource_estimates["spectral"]
+
+    assert analyzed.plan.memory_values == plain.plan.memory_values
+    assert analyzed.plan.equivalence_class.equivalence_fingerprint == plain.plan.equivalence_class.equivalence_fingerprint
+    assert renyi["status"] == "computed"
+    assert renyi["unit"] == "bits"
+    assert spectral["status"] == "computed"
+    assert len(spectral["spectrum"]) == 3
