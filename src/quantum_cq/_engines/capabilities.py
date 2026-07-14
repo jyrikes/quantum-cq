@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Literal
 
 
@@ -19,18 +20,27 @@ COMMON_CAPABILITIES: tuple[str, ...] = (
     "y",
     "z",
     "h",
+    "p",
     "rx",
     "ry",
     "rz",
     "cx",
     "cz",
+    "cp",
     "swap",
     "measure",
+    "partial_measurement",
+    "mapped_measurement",
+    "auto_measure_all",
+    "intermediate_measurement",
     "parameterized",
     "mcx",
     "ccx",
+    "unitary",
     "observables",
     "gradients",
+    "statevector",
+    "noise",
     "local_execution",
     "remote_execution",
     "async_jobs",
@@ -54,6 +64,8 @@ class EngineCapabilities:
         if invalid:
             feature, status = next(iter(invalid.items()))
             raise ValueError(f"Capability '{feature}' has invalid status '{status}'")
+        object.__setattr__(self, "statuses", MappingProxyType(dict(self.statuses)))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     def status(self, feature: str) -> CapabilityStatus:
         return self.statuses.get(feature, "unsupported")

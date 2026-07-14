@@ -53,6 +53,7 @@ def test_source_modules_exist():
         "_algorithms",
         "_runtime",
         "_tools",
+        "_engines",
     ):
         assert (package / private_package / "__init__.py").exists()
 
@@ -510,6 +511,7 @@ def test_private_modules_do_not_import_public_shims():
         "_algorithms",
         "_runtime",
         "_tools",
+        "_engines",
     ):
         for path in (package / private_root).glob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"))

@@ -11,6 +11,7 @@ from quantum_cq._engines.errors import CapabilityMismatchError
 
 def lower_for_capabilities(ir: CircuitIR, capabilities: EngineCapabilities) -> CircuitIR:
     lowered_layers: list[Layer] = []
+    lowered_outputs: list[Operation] = []
 
     for layer in ir.layers:
         lowered = Layer()
@@ -19,11 +20,16 @@ def lower_for_capabilities(ir: CircuitIR, capabilities: EngineCapabilities) -> C
                 lowered.add(next_operation)
         lowered_layers.append(lowered)
 
-    return replace(ir, layers=lowered_layers)
+    for operation in ir.outputs:
+        lowered_outputs.extend(_lower_operation(operation, capabilities))
+
+    return replace(ir, layers=lowered_layers, outputs=lowered_outputs)
 
 
 def _lower_operation(operation: Operation, capabilities: EngineCapabilities) -> tuple[Operation, ...]:
     if operation.kind != "mcx":
+        if operation.kind == "barrier":
+            return (operation,)
         if not capabilities.supports(operation.kind):
             raise CapabilityMismatchError(
                 f"Engine '{capabilities.engine}' does not support operation '{operation.kind}'"

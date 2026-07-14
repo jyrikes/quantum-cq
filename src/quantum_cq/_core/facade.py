@@ -137,16 +137,22 @@ class CQ:
         metadata: dict[str, Any] | None = None,
         registry: HandlerRegistry[EncodingProtocol] | None = None,
         navigation_registry: NavigationRegistry | None = None,
+        circuit_factory: Any = None,
+        engine: str | None = None,
+        quantum_engine: str | None = None,
         role: str = "state",
         **kwargs: Any,
     ) -> Any:
         normalized_role = "state" if role == "input" else role
         if normalized_role == "navigation":
+            if engine is not None and "engine" not in kwargs:
+                kwargs["engine"] = engine
             return CQ._encode_navigation(
                 data,
                 encoding=encoding,
                 metadata=metadata,
                 registry=navigation_registry,
+                circuit_factory=CQ._component_circuit_factory(quantum_engine, circuit_factory),
                 **kwargs,
             )
         if normalized_role in {"oracle", "operator"}:
@@ -154,7 +160,9 @@ class CQ:
         if normalized_role != "state":
             raise ValueError(f"Role de encoding invalido: {role}")
 
-        builder = CQ.pipeline(registry=registry).with_data(data, metadata=metadata)
+        selected_factory = CQ._component_circuit_factory(engine or quantum_engine, circuit_factory)
+        resolved_registry = registry or default_encoding_registry(circuit_factory=selected_factory)
+        builder = CQ.pipeline(registry=resolved_registry).with_data(data, metadata=metadata)
         if encoding is None:
             return builder.auto_encoding().build()
 
@@ -167,9 +175,10 @@ class CQ:
         encoding: str | None,
         metadata: dict[str, Any] | None,
         registry: NavigationRegistry | None,
+        circuit_factory: Any = None,
         **kwargs: Any,
     ) -> Any:
-        resolved = registry or default_navigation_registry()
+        resolved = registry or default_navigation_registry(circuit_factory=circuit_factory)
         if encoding is not None:
             encoder = resolved.get(encoding)
             if not encoder.can_handle(data):
@@ -235,7 +244,9 @@ class CQ:
 
     @staticmethod
     def deutsch(case: int = 1, **kwargs: Any) -> Any:
-        return CQ.algorithm("deutsch").with_case(case).build(**kwargs)
+        engine = kwargs.pop("engine", None)
+        build_format = CQ._build_format_for_engine(engine, kwargs.pop("format", None))
+        return CQ.algorithm("deutsch", engine=engine).with_case(case).build(format=build_format, **kwargs)
 
     @staticmethod
     def bv(secret: str, **kwargs: Any) -> Any:
@@ -279,11 +290,15 @@ class CQ:
 
     @staticmethod
     def diffuser(num_qubits: int, **kwargs: Any) -> Any:
-        return CQ.primitive("standard_diffuser").build(num_qubits, **kwargs)
+        engine = kwargs.pop("engine", None)
+        build_format = CQ._build_format_for_engine(engine, kwargs.pop("format", None))
+        return CQ.primitive("standard_diffuser", engine=engine).build(num_qubits, format=build_format, **kwargs)
 
     @staticmethod
     def phase_rotation(phase: float, **kwargs: Any) -> Any:
-        return CQ.operator("phase_rotation").with_phase(phase).build(**kwargs)
+        engine = kwargs.pop("engine", None)
+        build_format = CQ._build_format_for_engine(engine, kwargs.pop("format", None))
+        return CQ.operator("phase_rotation", engine=engine).with_phase(phase).build(format=build_format, **kwargs)
 
     @staticmethod
     def available_encodings(
@@ -301,8 +316,10 @@ class CQ:
         *,
         registry: AlgorithmRegistry | None = None,
         circuit_factory: Any = None,
+        engine: str | None = None,
         oracle_registry: OracleRegistry | None = None,
     ) -> Any:
+        circuit_factory = CQ._component_circuit_factory(engine, circuit_factory)
         resolved = registry or default_algorithm_registry(
             circuit_factory=circuit_factory,
             oracle_registry=oracle_registry,
@@ -318,6 +335,28 @@ class CQ:
         return (registry or default_oracle_registry()).names()
 
     @staticmethod
+    def oracle(
+        name: str,
+        *args: Any,
+        registry: OracleRegistry | None = None,
+        circuit_factory: Any = None,
+        engine: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        circuit_factory = CQ._component_circuit_factory(engine, circuit_factory)
+        resolved = registry or default_oracle_registry(circuit_factory=circuit_factory)
+        try:
+            if hasattr(resolved, "create"):
+                return resolved.create(name, *args, **kwargs)
+            if args or kwargs:
+                raise TypeError("OracleRegistry informado nao aceita argumentos de construcao")
+            return resolved.get(name)
+        except KeyError as exc:
+            raise KeyError(f"Oracle '{name}' nao registrado") from exc
+        except TypeError as exc:
+            raise TypeError(f"Argumentos invalidos para oracle '{name}': {exc}") from exc
+
+    @staticmethod
     def available_primitives(registry: PrimitiveRegistry | None = None) -> list[str]:
         return (registry or default_primitive_registry()).names()
 
@@ -330,12 +369,35 @@ class CQ:
         return (registry or default_navigation_registry()).names()
 
     @staticmethod
+    def catalog(
+        *,
+        category: str | None = None,
+        status: str | None = None,
+        name: str | None = None,
+        engine: str | None = None,
+    ) -> tuple[Any, ...]:
+        from quantum_cq._core.components import ComponentService
+        from quantum_cq._engines.service import default_engine_service
+
+        engine_service = default_engine_service()
+        return ComponentService(
+            capability_resolver=engine_service.capability_model,
+        ).catalog(
+            category=category,
+            status=status,
+            name=name,
+            engine=engine,
+        )
+
+    @staticmethod
     def primitive(
         name: str,
         *,
         registry: PrimitiveRegistry | None = None,
         circuit_factory: Any = None,
+        engine: str | None = None,
     ) -> Any:
+        circuit_factory = CQ._component_circuit_factory(engine, circuit_factory)
         resolved = registry or default_primitive_registry(circuit_factory=circuit_factory)
         return resolved.get(name)
 
@@ -345,7 +407,9 @@ class CQ:
         *,
         registry: OperatorRegistry | None = None,
         circuit_factory: Any = None,
+        engine: str | None = None,
     ) -> Any:
+        circuit_factory = CQ._component_circuit_factory(engine, circuit_factory)
         resolved = registry or default_operator_registry(circuit_factory=circuit_factory)
         return resolved.get(name)
 
@@ -355,7 +419,9 @@ class CQ:
         *,
         registry: NavigationRegistry | None = None,
         circuit_factory: Any = None,
+        quantum_engine: str | None = None,
     ) -> Any:
+        circuit_factory = CQ._component_circuit_factory(quantum_engine, circuit_factory)
         resolved = registry or default_navigation_registry(circuit_factory=circuit_factory)
         return resolved.get(name)
 
@@ -559,27 +625,27 @@ class CQ:
 
     @staticmethod
     def engines() -> list[dict[str, Any]]:
-        from quantum_cq._engines.registry import engine_catalog
+        from quantum_cq._engines.service import default_engine_service
 
-        return engine_catalog()
+        return default_engine_service().engines()
 
     @staticmethod
     def engine_capabilities(engine: str) -> dict[str, Any]:
-        from quantum_cq._engines.registry import engine_capabilities
+        from quantum_cq._engines.service import default_engine_service
 
-        return engine_capabilities(engine)
+        return default_engine_service().capabilities(engine)
 
     @staticmethod
     def emit(circuit_like: Any, engine: str = "qiskit", **options: Any) -> Any:
-        from quantum_cq._engines.registry import get_engine_adapter
+        from quantum_cq._engines.service import default_engine_service
 
-        return get_engine_adapter(engine).emit(circuit_like, **options)
+        return default_engine_service().emit(circuit_like, engine=engine, **options)
 
     @staticmethod
     def compile(circuit_like: Any, engine: str = "qiskit", **options: Any) -> Any:
-        from quantum_cq._engines.registry import get_engine_adapter
+        from quantum_cq._engines.service import default_engine_service
 
-        return get_engine_adapter(engine).compile(circuit_like, **options)
+        return default_engine_service().compile(circuit_like, engine=engine, **options)
 
     @staticmethod
     def run_engine(
@@ -589,9 +655,9 @@ class CQ:
         shots: int = 1024,
         **options: Any,
     ) -> Any:
-        from quantum_cq._engines.registry import get_engine_adapter
+        from quantum_cq._engines.service import default_engine_service
 
-        return get_engine_adapter(engine).run(circuit_like, shots=shots, **options)
+        return default_engine_service().run(circuit_like, engine=engine, shots=shots, **options)
 
     @staticmethod
     def ibm(
@@ -676,6 +742,24 @@ class CQ:
             accepted = ", ".join(sorted(aliases))
             raise ValueError(f"Engine de navigation invalida: {engine}. Engines aceitos: {accepted}")
         return aliases[engine]
+
+    @staticmethod
+    def _component_circuit_factory(engine: str | None, circuit_factory: Any = None) -> Any:
+        if circuit_factory is not None:
+            return circuit_factory
+        if engine is None or engine == "qiskit":
+            return None
+        from quantum_cq._circuits.adapters import LogicalCircuitFactory
+
+        return LogicalCircuitFactory()
+
+    @staticmethod
+    def _build_format_for_engine(engine: str | None, explicit_format: str | None) -> str:
+        if explicit_format is not None:
+            return explicit_format
+        if engine is None or engine == "qiskit":
+            return "qiskit"
+        return "ir"
 
     @staticmethod
     def _resolve_alias_pair(

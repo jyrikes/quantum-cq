@@ -62,6 +62,9 @@ from quantum_cq._core.results import (
     OracleCircuit,
     QuantumResult,
 )
+from quantum_cq._core.components import CatalogEntry
+from quantum_cq._engines.compatibility import CompatibilityReport, ComponentRequirement
+from quantum_cq._engines.measurement import MeasurementContract
 from quantum_cq._engines.results import CompiledArtifact, EngineResult
 from quantum_cq._core.settings import (
     PipelineSettings,
@@ -116,7 +119,11 @@ __all__ = [
     "AlgorithmSpec",
     "CompilerResult",
     "CompiledArtifact",
+    "CatalogEntry",
+    "CompatibilityReport",
+    "ComponentRequirement",
     "EngineResult",
+    "MeasurementContract",
     "OperatorCircuit",
     "OracleCircuit",
     "NavigationCircuit",
