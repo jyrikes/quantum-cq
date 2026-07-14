@@ -9,7 +9,7 @@ from quantum_cq._engines.availability import EngineAvailability
 from quantum_cq._engines.capabilities import EngineCapabilities
 from quantum_cq._engines.measurement import MeasurementContract
 from quantum_cq._engines.results import CompiledArtifact, EngineResult
-from quantum_cq._engines.results import NativeExecutionResult
+from quantum_cq._engines.results import NativeExecutionResult, NativeTranspilationResult
 
 
 class EnginePortProtocol(Protocol):
@@ -49,6 +49,19 @@ class CompilerPort(EnginePortProtocol, Protocol):
         lowering_rules: tuple[str, ...] = (),
         **options: Any,
     ) -> CompiledArtifact: ...
+
+
+class TranspilerPort(EnginePortProtocol, Protocol):
+    def transpile(
+        self,
+        emitted_circuit: Any,
+        *,
+        measurement_contract: MeasurementContract | None = None,
+        context: Any = None,
+        target: Any = None,
+        policy: str = "allow_native_refinement",
+        **options: Any,
+    ) -> NativeTranspilationResult: ...
 
 
 class ExecutorPort(EnginePortProtocol, Protocol):

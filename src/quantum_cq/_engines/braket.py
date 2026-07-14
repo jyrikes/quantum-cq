@@ -18,7 +18,12 @@ from quantum_cq._engines.measurement import (
     canonical_counts_from_rows,
     measurement_contract_from_ir,
 )
-from quantum_cq._engines.results import CompiledArtifact, EngineResult, NativeExecutionResult
+from quantum_cq._engines.results import (
+    CompiledArtifact,
+    EngineResult,
+    NativeExecutionResult,
+    NativeTranspilationResult,
+)
 
 
 ENGINE_ID = "braket"
@@ -91,6 +96,13 @@ class BraketCapabilitiesPort:
                 "local_execution": "supported",
                 "remote_execution": "unsupported",
                 "async_jobs": "unsupported",
+                "logical_input": "supported",
+                "native_circuit_input": "not_tested",
+                "neutralization": "not_tested",
+                "native_transpilation": "unsupported",
+                "compiler": "supported",
+                "executor": "supported",
+                "renderer": "not_tested",
             },
             metadata={"version": availability.version},
         )
@@ -268,6 +280,30 @@ class BraketEngineAdapter:
         return self._bundle.decoder.decode(execution, artifact, shots=shots, **options)
 
 
+class BraketTranspilerPort:
+    engine_id = ENGINE_ID
+
+    def transpile(
+        self,
+        emitted_circuit: Any,
+        *,
+        measurement_contract: MeasurementContract | None = None,
+        context: Any = None,
+        target: Any = None,
+        policy: str = "allow_native_refinement",
+        **options: Any,
+    ) -> NativeTranspilationResult:
+        _ = context, target, policy, options
+        return NativeTranspilationResult(
+            engine=self.engine_id,
+            before=emitted_circuit,
+            after=emitted_circuit,
+            status="not_applicable",
+            measurement_contract=measurement_contract,
+            native_metadata={"native_transpilation": "not_applicable"},
+        )
+
+
 def create_bundle() -> EngineBundle:
     availability = BraketAvailabilityPort()
     return EngineBundle(
@@ -278,6 +314,7 @@ def create_bundle() -> EngineBundle:
         compiler=BraketCompilerPort(),
         executor=BraketExecutorPort(),
         decoder=BraketResultDecoderPort(),
+        transpiler=BraketTranspilerPort(),
     )
 
 

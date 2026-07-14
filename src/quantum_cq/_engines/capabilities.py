@@ -44,6 +44,13 @@ COMMON_CAPABILITIES: tuple[str, ...] = (
     "local_execution",
     "remote_execution",
     "async_jobs",
+    "logical_input",
+    "native_circuit_input",
+    "neutralization",
+    "native_transpilation",
+    "compiler",
+    "executor",
+    "renderer",
 )
 
 

@@ -66,7 +66,7 @@ from quantum_cq._core.components import CatalogEntry
 from quantum_cq._core.circuits import CircuitDescriptor, CircuitRequirements
 from quantum_cq._engines.compatibility import CompatibilityReport, ComponentRequirement
 from quantum_cq._engines.measurement import MeasurementContract
-from quantum_cq._engines.results import CompiledArtifact, EngineResult
+from quantum_cq._engines.results import CompiledArtifact, EngineResult, NativeTranspilationResult
 from quantum_cq._circuits.unitary import CustomUnitary
 from quantum_cq._hardware.models import (
     ExecutionContext,
@@ -144,6 +144,7 @@ __all__ = [
     "ExecutionTargetDescriptor",
     "MeasurementContract",
     "NativeInstruction",
+    "NativeTranspilationResult",
     "TargetArchitecture",
     "TargetDatum",
     "TargetProvenance",

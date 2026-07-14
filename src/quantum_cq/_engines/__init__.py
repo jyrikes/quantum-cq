@@ -24,7 +24,7 @@ from quantum_cq._engines.registry import (
     get_engine_adapter,
     get_engine_bundle,
 )
-from quantum_cq._engines.results import CompiledArtifact, EngineResult
+from quantum_cq._engines.results import CompiledArtifact, EngineResult, NativeTranspilationResult
 from quantum_cq._engines.service import EngineService
 
 __all__ = [
@@ -43,6 +43,7 @@ __all__ = [
     "ExecutionError",
     "MeasurementContract",
     "MeasurementMapping",
+    "NativeTranspilationResult",
     "QuantumCQError",
     "ResultDecodingError",
     "UnknownEngineError",

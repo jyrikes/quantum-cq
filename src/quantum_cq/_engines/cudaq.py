@@ -11,7 +11,12 @@ from quantum_cq._engines.availability import EngineAvailability
 from quantum_cq._engines.bundle import EngineBundle
 from quantum_cq._engines.capabilities import EngineCapabilities
 from quantum_cq._engines.errors import EngineNotInstalledError, ExecutionError, ResultDecodingError
-from quantum_cq._engines.results import CompiledArtifact, EngineResult, NativeExecutionResult
+from quantum_cq._engines.results import (
+    CompiledArtifact,
+    EngineResult,
+    NativeExecutionResult,
+    NativeTranspilationResult,
+)
 
 
 ENGINE_ID = "cudaq"
@@ -107,6 +112,13 @@ class CudaQCapabilitiesPort:
                 "local_execution": status,
                 "remote_execution": "unsupported",
                 "async_jobs": "unsupported",
+                "logical_input": "unsupported",
+                "native_circuit_input": "unsupported",
+                "neutralization": "unsupported",
+                "native_transpilation": "unsupported",
+                "compiler": "unsupported",
+                "executor": "unsupported",
+                "renderer": "unsupported",
             },
             metadata={**availability.metadata, "reason": availability.reason},
         )
@@ -123,6 +135,10 @@ class CudaQUnavailablePort:
         raise EngineNotInstalledError(self._availability.availability().reason)
 
     def compile(self, emitted_circuit: Any, **options: Any) -> CompiledArtifact:
+        _ = emitted_circuit, options
+        raise EngineNotInstalledError(self._availability.availability().reason)
+
+    def transpile(self, emitted_circuit: Any, **options: Any) -> NativeTranspilationResult:
         _ = emitted_circuit, options
         raise EngineNotInstalledError(self._availability.availability().reason)
 
@@ -176,4 +192,5 @@ def create_bundle() -> EngineBundle:
         compiler=unavailable,
         executor=unavailable,
         decoder=unavailable,
+        transpiler=unavailable,
     )

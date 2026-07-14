@@ -28,6 +28,7 @@ from quantum_cq._core.metrics import MetricsCollector
 from quantum_cq._core.results import EncodedCircuit
 from quantum_cq._runtime.runtime import IBMRuntimeConfig
 from quantum_cq._core.selectors import EncodingSelectionContext, EncodingSelector
+from quantum_cq._runtime.unified import PipelineCore, PipelineExecutionConfig, legacy_build
 
 
 class _CQPipelineBuilder:
@@ -40,8 +41,28 @@ class _CQPipelineBuilder:
         self.registry = registry or default_encoding_registry()
         self.selector = selector
         self._data: QuantumData | None = None
+        self._raw_data: Any = None
         self._encoding_name: str | None = None
         self._auto = True
+        self._equation: str | None = None
+        self._parameters: dict[str, Any] = {}
+        self._symbols: dict[str, Any] = {}
+        self._circuit: Any = None
+        self._input: Any = None
+        self._input_adapter: Any = None
+        self._engine: str | None = None
+        self._target: Any = None
+        self._snapshot: Any = None
+        self._shots = 1024
+        self._measurement = "auto"
+        self._placement: str | None = None
+        self._routing: str | None = None
+        self._scheduling: str | None = None
+        self._stages: tuple[str, ...] = ()
+        self._stop_after: str | None = None
+        self._scenarios: tuple[dict[str, Any], ...] = ()
+        self._render: dict[str, Any] = {}
+        self._runtime_options: dict[str, Any] = {}
 
     def with_data(self, value: Any, metadata: dict[str, Any] | None = None) -> "_CQPipelineBuilder":
         if isinstance(value, QuantumData):
@@ -49,9 +70,11 @@ class _CQPipelineBuilder:
             if metadata:
                 merged.update(metadata)
             self._data = QuantumData(value.value, metadata=merged)
+            self._raw_data = value.value
             return self
 
         self._data = QuantumData(value, metadata=metadata or {})
+        self._raw_data = value
         return self
 
     def with_encoding(self, name: str) -> "_CQPipelineBuilder":
@@ -74,18 +97,121 @@ class _CQPipelineBuilder:
         self._data = QuantumData(self._data.value, metadata=merged)
         return self
 
+    def with_equation(
+        self,
+        equation: str,
+        *,
+        parameters: dict[str, Any] | None = None,
+        symbols: dict[str, Any] | None = None,
+    ) -> "_CQPipelineBuilder":
+        self._equation = equation
+        if parameters:
+            self._parameters.update(parameters)
+        if symbols:
+            self._symbols.update(symbols)
+        return self
+
+    def with_parameters(self, **parameters: Any) -> "_CQPipelineBuilder":
+        self._parameters.update(parameters)
+        return self
+
+    def with_symbols(self, **symbols: Any) -> "_CQPipelineBuilder":
+        self._symbols.update(symbols)
+        return self
+
+    def with_circuit(self, circuit: Any) -> "_CQPipelineBuilder":
+        self._circuit = circuit
+        return self
+
+    def with_input(self, value: Any, *, adapter: Any) -> "_CQPipelineBuilder":
+        self._input = value
+        self._input_adapter = adapter
+        return self
+
+    def with_engine(self, engine: str) -> "_CQPipelineBuilder":
+        self._engine = engine
+        return self
+
+    def with_target(self, target: Any, *, snapshot: Any = None) -> "_CQPipelineBuilder":
+        self._target = target
+        self._snapshot = snapshot
+        return self
+
+    def with_runtime(
+        self,
+        *,
+        shots: int | None = None,
+        measurement: str | None = None,
+        **options: Any,
+    ) -> "_CQPipelineBuilder":
+        if shots is not None:
+            self._shots = int(shots)
+        if measurement is not None:
+            self._measurement = measurement
+        self._runtime_options.update(options)
+        return self
+
+    def with_strategy(
+        self,
+        *,
+        placement: str | None = None,
+        routing: str | None = None,
+        scheduling: str | None = None,
+    ) -> "_CQPipelineBuilder":
+        self._placement = placement
+        self._routing = routing
+        self._scheduling = scheduling
+        return self
+
+    def with_stages(self, *stages: str, stop_after: str | None = None) -> "_CQPipelineBuilder":
+        self._stages = tuple(stages)
+        self._stop_after = stop_after
+        return self
+
+    def with_scenarios(self, scenarios: Sequence[dict[str, Any]]) -> "_CQPipelineBuilder":
+        self._scenarios = tuple(dict(item) for item in scenarios)
+        return self
+
     def build(self) -> EncodedCircuit:
-        if self._data is None or self._data.value is None:
-            raise ValueError("CQ.pipeline requer dados antes de build")
+        config = self._config()
+        if config.is_legacy_encoding_flow:
+            return legacy_build(config)
+        from quantum_cq._runtime.experiment import PipelineResult
 
-        if not self._auto and self._encoding_name is not None:
-            return self._build_manual(self._data, self._encoding_name)
+        return PipelineResult(scenario_results=PipelineCore(config).transpile())
 
-        encoder = self._selector().select(self._data)
-        return encoder.encode(self._data)
-
-    def run(self) -> EncodedCircuit:
+    def run(self) -> Any:
         return self.build()
+
+    def transpile(self) -> PipelineResult:
+        config = self._config()
+        from quantum_cq._runtime.experiment import PipelineResult
+
+        return PipelineResult(scenario_results=PipelineCore(config).transpile())
+
+    def compile(self, *, engine: str | None = None, **options: Any) -> PipelineResult:
+        config = self._config()
+        from quantum_cq._runtime.experiment import PipelineResult
+
+        return PipelineResult(scenario_results=PipelineCore(config).compile(engine=engine, **options))
+
+    def run_engine(
+        self,
+        *,
+        engine: str | None = None,
+        shots: int | None = None,
+        **options: Any,
+    ) -> PipelineResult:
+        config = self._config()
+        from quantum_cq._runtime.experiment import PipelineResult
+
+        return PipelineResult(
+            scenario_results=PipelineCore(config).run_engine(
+                engine=engine,
+                shots=shots,
+                **options,
+            )
+        )
 
     def _build_manual(self, data: QuantumData, name: str) -> EncodedCircuit:
         encoder = self.registry.get(name)
@@ -100,6 +226,34 @@ class _CQPipelineBuilder:
 
         return EncodingSelector(self.registry)
 
+    def _config(self) -> PipelineExecutionConfig:
+        return PipelineExecutionConfig(
+            data=None if self._data is None else self._data.value,
+            equation=self._equation,
+            circuit=self._circuit,
+            input=self._input,
+            input_adapter=self._input_adapter,
+            encoding=None if self._auto else self._encoding_name,
+            registry=self.registry,
+            selector=self.selector,
+            metadata={} if self._data is None else dict(self._data.metadata),
+            parameters=self._parameters,
+            symbols=self._symbols,
+            engine=self._engine,
+            target=self._target,
+            snapshot=self._snapshot,
+            shots=self._shots,
+            measurement=self._measurement,
+            placement=self._placement,
+            routing=self._routing,
+            scheduling=self._scheduling,
+            stages=self._stages,
+            stop_after=self._stop_after,
+            scenarios=self._scenarios,
+            render=self._render,
+            runtime_options=self._runtime_options,
+        )
+
 
 class CQ:
     """Facade simples para encoding."""
@@ -109,17 +263,73 @@ class CQ:
         data: Any = None,
         *,
         encoding: str | None = None,
+        equation: str | None = None,
+        parameters: dict[str, Any] | None = None,
+        symbols: dict[str, Any] | None = None,
+        circuit: Any = None,
+        input: Any = None,
+        input_adapter: Any = None,
+        engine: str | None = None,
+        target: Any = None,
+        snapshot: Any = None,
+        shots: int = 1024,
+        measurement: str = "auto",
+        placement: str | None = None,
+        routing: str | None = None,
+        scheduling: str | None = None,
+        stages: Sequence[str] | None = None,
+        stop_after: str | None = None,
+        scenarios: Sequence[dict[str, Any]] | None = None,
+        render: dict[str, Any] | None = None,
         registry: HandlerRegistry[EncodingProtocol] | None = None,
         selector: Any = None,
+        metadata: dict[str, Any] | None = None,
+        runtime_options: dict[str, Any] | None = None,
+        **unknown_options: Any,
     ) -> _CQPipelineBuilder:
+        if unknown_options:
+            names = ", ".join(sorted(unknown_options))
+            raise ValueError(f"opcao desconhecida para CQ.pipeline: {names}")
         builder = _CQPipelineBuilder(registry=registry, selector=selector)
         if data is not None:
-            builder.with_data(data)
+            builder.with_data(data, metadata=metadata)
         if encoding is not None:
             if encoding == "auto":
                 builder.auto_encoding()
             else:
                 builder.with_encoding(encoding)
+        if equation is not None:
+            builder.with_equation(
+                equation,
+                parameters=parameters,
+                symbols=symbols,
+            )
+        elif parameters:
+            builder.with_parameters(**parameters)
+        if symbols and equation is None:
+            builder.with_symbols(**symbols)
+        if circuit is not None:
+            builder.with_circuit(circuit)
+        if input is not None:
+            if input_adapter is None:
+                builder._input = input
+            else:
+                builder.with_input(input, adapter=input_adapter)
+        elif input_adapter is not None:
+            builder._input_adapter = input_adapter
+        if engine is not None:
+            builder.with_engine(engine)
+        if target is not None:
+            builder.with_target(target, snapshot=snapshot)
+        builder.with_runtime(shots=shots, measurement=measurement, **(runtime_options or {}))
+        builder.with_strategy(placement=placement, routing=routing, scheduling=scheduling)
+        if stages is not None or stop_after is not None:
+            builder.with_stages(*(tuple(stages or ())), stop_after=stop_after)
+        if scenarios is not None:
+            builder.with_scenarios(scenarios)
+        if render is not None:
+            builder._render = dict(render)
+        builder._config().validate(terminal="legacy" if data is None and equation is None and circuit is None and input is None else None)
         return builder
 
     @staticmethod

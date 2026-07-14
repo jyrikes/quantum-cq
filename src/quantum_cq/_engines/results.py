@@ -86,3 +86,24 @@ class NativeExecutionResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
+
+@dataclass(frozen=True)
+class NativeTranspilationResult:
+    engine: str
+    before: Any
+    after: Any
+    status: str = "completed"
+    mapping_before: Mapping[str, Any] = field(default_factory=dict)
+    mapping_after: Mapping[str, Any] = field(default_factory=dict)
+    measurement_contract: MeasurementContract | None = None
+    transformation_events: tuple[Any, ...] = ()
+    metrics: Mapping[str, Any] = field(default_factory=dict)
+    native_metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "mapping_before", MappingProxyType(dict(self.mapping_before)))
+        object.__setattr__(self, "mapping_after", MappingProxyType(dict(self.mapping_after)))
+        object.__setattr__(self, "transformation_events", tuple(self.transformation_events))
+        object.__setattr__(self, "metrics", MappingProxyType(dict(self.metrics)))
+        object.__setattr__(self, "native_metadata", MappingProxyType(dict(self.native_metadata)))

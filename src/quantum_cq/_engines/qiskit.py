@@ -11,7 +11,12 @@ from quantum_cq._engines.bundle import EngineBundle
 from quantum_cq._engines.capabilities import EngineCapabilities
 from quantum_cq._engines.errors import EngineNotInstalledError, ExecutionError, ResultDecodingError
 from quantum_cq._engines.measurement import MeasurementContract, MeasurementMapping, measure_all_contract
-from quantum_cq._engines.results import CompiledArtifact, EngineResult, NativeExecutionResult
+from quantum_cq._engines.results import (
+    CompiledArtifact,
+    EngineResult,
+    NativeExecutionResult,
+    NativeTranspilationResult,
+)
 
 
 ENGINE_ID = "qiskit"
@@ -82,6 +87,13 @@ class QiskitCapabilitiesPort:
                 "local_execution": "supported",
                 "remote_execution": "not_tested",
                 "async_jobs": "not_tested",
+                "logical_input": "supported",
+                "native_circuit_input": "supported",
+                "neutralization": "supported",
+                "native_transpilation": "supported",
+                "compiler": "supported",
+                "executor": "supported",
+                "renderer": "supported",
             },
             metadata={"version": availability.version},
         )
@@ -162,6 +174,66 @@ class QiskitCompilerPort:
             capabilities_considered=dict(capabilities.statuses) if capabilities is not None else {},
             lowering_rules=lowering_rules,
             engine_version=availability.version if availability is not None else None,
+        )
+
+
+class QiskitTranspilerPort:
+    engine_id = ENGINE_ID
+
+    def transpile(
+        self,
+        emitted_circuit: Any,
+        *,
+        measurement_contract: MeasurementContract | None = None,
+        context: Any = None,
+        target: Any = None,
+        policy: str = "allow_native_refinement",
+        **options: Any,
+    ) -> NativeTranspilationResult:
+        _ = context, target
+        if policy not in {
+            "preserve_physical_plan",
+            "allow_native_refinement",
+            "reject_unsupported_preservation",
+        }:
+            raise ValueError(f"Politica de transpilacao invalida: {policy}")
+        before = emitted_circuit.copy() if hasattr(emitted_circuit, "copy") else emitted_circuit
+        after = before.copy() if hasattr(before, "copy") else before
+        status = "completed"
+        metadata_map: dict[str, Any] = {"policy": policy, "native_transpilation": "identity"}
+        pass_manager = options.get("pass_manager")
+        backend = options.get("backend")
+        optimization_level = options.get("optimization_level")
+        if pass_manager is not None:
+            after = pass_manager.run(before)
+            metadata_map["native_transpilation"] = "pass_manager"
+        elif backend is not None and optimization_level is not None:
+            try:
+                from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+            except ImportError as exc:
+                raise EngineNotInstalledError("Qiskit transpiler is not available") from exc
+            after = generate_preset_pass_manager(
+                backend=backend,
+                optimization_level=optimization_level,
+            ).run(before)
+            metadata_map["native_transpilation"] = "preset_pass_manager"
+        elif policy == "reject_unsupported_preservation":
+            raise ExecutionError("Qiskit transpiler preservation policy requires explicit backend or pass_manager")
+
+        metrics = {
+            "before_depth": before.depth() if hasattr(before, "depth") else None,
+            "after_depth": after.depth() if hasattr(after, "depth") else None,
+            "before_size": before.size() if hasattr(before, "size") else None,
+            "after_size": after.size() if hasattr(after, "size") else None,
+        }
+        return NativeTranspilationResult(
+            engine=self.engine_id,
+            before=before,
+            after=after,
+            status=status,
+            measurement_contract=measurement_contract,
+            metrics=metrics,
+            native_metadata=metadata_map,
         )
 
 
@@ -287,6 +359,7 @@ def create_bundle() -> EngineBundle:
         compiler=QiskitCompilerPort(),
         executor=QiskitExecutorPort(),
         decoder=QiskitResultDecoderPort(),
+        transpiler=QiskitTranspilerPort(),
     )
 
 

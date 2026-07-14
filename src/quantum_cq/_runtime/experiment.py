@@ -249,6 +249,7 @@ class ExperimentResult:
 class PipelineResult:
     experiments: list[ExperimentResult] = field(default_factory=list)
     title: str | None = None
+    scenario_results: list[Any] = field(default_factory=list)
 
     def counts_for(
         self,
@@ -311,12 +312,18 @@ class PipelineResult:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "title": self.title,
             "summary": _json_safe(self.summary()),
             "global_metrics": _json_safe(self.global_metrics()),
             "experiments": [experiment.to_dict() for experiment in self.experiments],
         }
+        if self.scenario_results:
+            payload["scenario_results"] = [
+                item.to_dict() if hasattr(item, "to_dict") else _json_safe(item)
+                for item in self.scenario_results
+            ]
+        return payload
 
     def to_json(self, indent: int | None = 2) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
@@ -332,6 +339,98 @@ class PipelineResult:
 
     def show(self) -> "PipelineResult":
         print(self.summary())
+        return self
+
+    @property
+    def semantic_ir(self) -> Any:
+        scenario = self._single_scenario()
+        return None if scenario is None else scenario.artifacts.get("semantic_ir")
+
+    @property
+    def logical_circuit(self) -> Any:
+        scenario = self._single_scenario()
+        return None if scenario is None else scenario.logical_circuit
+
+    @property
+    def before_transpile(self) -> Any:
+        scenario = self._single_scenario()
+        return None if scenario is None else scenario.before_transpile
+
+    @property
+    def after_transpile(self) -> Any:
+        scenario = self._single_scenario()
+        return None if scenario is None else scenario.after_transpile
+
+    @property
+    def transpilation_record(self) -> Any:
+        scenario = self._single_scenario()
+        return None if scenario is None else scenario.transpilation_record
+
+    @property
+    def compiled_artifact(self) -> Any:
+        scenario = self._single_scenario()
+        return None if scenario is None else scenario.compiled_artifact
+
+    @property
+    def engine_result(self) -> Any:
+        scenario = self._single_scenario()
+        return None if scenario is None else scenario.engine_result
+
+    def scenario(self, scenario_id: str) -> Any:
+        for item in self.scenario_results:
+            if getattr(item, "scenario_id", None) == scenario_id:
+                return item
+        raise KeyError(f"scenario_id nao encontrado: {scenario_id}")
+
+    def show_circuits(self, *, scenario_id: str | None = None) -> "PipelineResult":
+        scenario = self._single_scenario(scenario_id)
+        if scenario is None:
+            print("Nenhum circuito disponivel.")
+            return self
+        for snapshot in getattr(scenario, "snapshots", ()):
+            descriptor = snapshot.descriptor()
+            print(f"[{descriptor['scenario_id']}] {descriptor['stage_id']} {descriptor['format']}: {descriptor['circuit']}")
+        return self
+
+    def show_transformations(self, *, scenario_id: str | None = None, mode: str = "text") -> "PipelineResult":
+        if mode != "text":
+            try:
+                from IPython.display import display
+            except ImportError as exc:
+                raise ImportError("Visualizacao grafica requer dependencias de notebook") from exc
+            display(self.show_transformations(scenario_id=scenario_id, mode="text"))
+            return self
+        scenario = self._single_scenario(scenario_id)
+        graph = None if scenario is None else scenario.transformation_graph
+        if graph is None or not graph.events:
+            print("Nenhuma transformacao estrutural registrada.")
+            return self
+        for event in graph.events:
+            print(f"{event.event_id}: {event.transformation_type} {dict(event.changes)}")
+        return self
+
+    def show_measurements(self, *, scenario_id: str | None = None, mode: str = "text") -> "PipelineResult":
+        if mode != "text":
+            try:
+                from qiskit.visualization import plot_histogram
+                from IPython.display import display
+            except ImportError as exc:
+                raise ImportError("Histograma grafico requer dependencias de notebook") from exc
+            scenario = self._single_scenario(scenario_id)
+            result = None if scenario is None else scenario.engine_result
+            if result is None or result.counts is None:
+                raise ValueError("Cenario nao possui counts para histograma")
+            display(plot_histogram(dict(result.counts)))
+            return self
+        scenario = self._single_scenario(scenario_id)
+        result = None if scenario is None else scenario.engine_result
+        if result is None or result.counts is None:
+            print("Nenhuma medicao disponivel.")
+            return self
+        shots = sum(result.counts.values())
+        for state, count in result.counts.items():
+            frequency = count / shots if shots else 0
+            print(f"{state}: count={count} frequency={frequency:.6f} shots={shots}")
         return self
 
     def classify(self, algorithm: str) -> str:
@@ -384,6 +483,15 @@ class PipelineResult:
             key = getattr(experiment, field_name) or ""
             grouped[str(key)].append(experiment)
         return dict(grouped)
+
+    def _single_scenario(self, scenario_id: str | None = None) -> Any:
+        if not self.scenario_results:
+            return None
+        if scenario_id is not None:
+            return self.scenario(scenario_id)
+        if len(self.scenario_results) != 1:
+            raise ValueError("Acesso ambiguo: informe scenario_id")
+        return self.scenario_results[0]
 
 
 class ExperimentMatrixRunner:

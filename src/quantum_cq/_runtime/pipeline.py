@@ -101,6 +101,19 @@ class BasePipeline:
         self.historico_jobs = []
         self.pipeline_ativo = True
 
+    def _run_unified_transpile(self, circuit: Any, *, engine: str = "qiskit", **options: Any) -> Any:
+        from quantum_cq._runtime.unified import PipelineCore, PipelineExecutionConfig
+
+        result = PipelineCore(
+            PipelineExecutionConfig(
+                circuit=circuit,
+                engine=engine,
+                runtime_options=options,
+            )
+        ).transpile()[0]
+        snapshot = result.after_transpile
+        return circuit if snapshot is None else snapshot.circuit
+
 
 class BenchmarkingPipeline(BasePipeline):
     """
@@ -472,7 +485,13 @@ class BenchmarkingPipeline(BasePipeline):
             optimization_level=optimization_level,
         )
 
-        transpiled = pass_manager.run(circuit)
+        transpiled = self._run_unified_transpile(
+            circuit,
+            engine="qiskit",
+            backend=runtime.backend,
+            optimization_level=optimization_level,
+            pass_manager=pass_manager,
+        )
         logger.info(
             "Circuito transpilado: backend=%s qubits=%s",
             self._backend_name(runtime.backend),

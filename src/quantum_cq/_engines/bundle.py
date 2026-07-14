@@ -11,6 +11,7 @@ from quantum_cq._engines.protocols import (
     EmitterPort,
     ExecutorPort,
     ResultDecoderPort,
+    TranspilerPort,
 )
 
 
@@ -23,6 +24,7 @@ class EngineBundle:
     compiler: CompilerPort
     executor: ExecutorPort
     decoder: ResultDecoderPort
+    transpiler: TranspilerPort | None = None
 
     def __post_init__(self) -> None:
         ports = (
@@ -32,6 +34,7 @@ class EngineBundle:
             self.compiler,
             self.executor,
             self.decoder,
+            *((self.transpiler,) if self.transpiler is not None else ()),
         )
         mismatched = [
             getattr(port, "engine_id", None)
