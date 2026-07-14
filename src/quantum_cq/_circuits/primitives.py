@@ -39,17 +39,18 @@ class StandardDiffuser:
         self.circuit_factory = circuit_factory
 
     def build(self, num_qubits: int, *, format: str = "qiskit") -> OperatorCircuit:
-        if format != "qiskit":
+        if format not in {"qiskit", "ir"}:
             raise NotImplementedError(f"StandardDiffuser ainda nao implementa build(format='{format}')")
         if num_qubits <= 0:
             raise ValueError("num_qubits deve ser positivo")
 
         builder = _factory_or_default(self.circuit_factory).create(num_qubits)
         self.apply(builder, qubits=list(range(num_qubits)))
+        circuit_format = str(getattr(builder, "target_format", format))
         return OperatorCircuit(
             circuit=builder.build(),
             operator_name=self.name,
-            circuit_format="qiskit",
+            circuit_format=circuit_format,
             metadata={
                 "operator_name": self.name,
                 "family": "operator",
@@ -196,15 +197,16 @@ class PhaseRotationUnitary:
         return self
 
     def build(self, *, format: str = "qiskit") -> OperatorCircuit:
-        if format != "qiskit":
+        if format not in {"qiskit", "ir"}:
             raise NotImplementedError(f"PhaseRotationUnitary ainda nao implementa build(format='{format}')")
 
         builder = _factory_or_default(self.circuit_factory).create(1)
         self.apply(builder, target_qubit=0)
+        circuit_format = str(getattr(builder, "target_format", format))
         return OperatorCircuit(
             circuit=builder.build(),
             operator_name=self.name,
-            circuit_format="qiskit",
+            circuit_format=circuit_format,
             metadata=self._metadata(),
         )
 

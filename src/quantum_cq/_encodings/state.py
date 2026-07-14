@@ -101,12 +101,14 @@ class _BaseEncoding(EncodingProtocol):
         input_size: int,
         **extra: Any,
     ) -> EncodedCircuit:
+        circuit_format = str(getattr(builder, "target_format", metadata.get("circuit_format", "qiskit")))
         metadata.update(
             {
                 "encoding_name": self.name,
                 "family": self.family,
                 "num_qubits": num_qubits,
                 "input_size": input_size,
+                "circuit_format": circuit_format,
                 **extra,
             }
         )

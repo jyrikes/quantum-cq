@@ -144,7 +144,7 @@ class PhaseMarkedStateOracle:
         *,
         format: str = "qiskit",
     ) -> OracleCircuit:
-        if format != "qiskit":
+        if format not in {"qiskit", "ir"}:
             raise NotImplementedError(f"PhaseMarkedStateOracle ainda nao implementa build(format='{format}')")
 
         resolved_state = self.marked_state if marked_state is None else _validate_bitstring(
@@ -153,10 +153,11 @@ class PhaseMarkedStateOracle:
         )
         builder = self._factory().create(len(resolved_state))
         self.apply(builder, marked_state=resolved_state)
+        circuit_format = str(getattr(builder, "target_format", format))
         return OracleCircuit(
             circuit=builder.build(),
             oracle_name=self.name,
-            circuit_format="qiskit",
+            circuit_format=circuit_format,
             metadata=self._metadata(resolved_state),
         )
 
