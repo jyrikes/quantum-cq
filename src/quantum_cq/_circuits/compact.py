@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+from quantum_cq._circuits.unitary import CustomUnitary, unitary_payload
+
 if TYPE_CHECKING:
     import pandas as pd
 
@@ -190,6 +192,7 @@ class CircuitIR:
     inputs: list[QuantumState]
     layers: list[Layer]
     outputs: list[Operation]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================
@@ -298,9 +301,18 @@ class LogicalCircuitBuilder:
 
     target_format = "ir"
 
-    def __init__(self, num_qubits: int, num_clbits: int = 0) -> None:
+    def __init__(
+        self,
+        num_qubits: int,
+        num_clbits: int = 0,
+        *,
+        name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         self._num_qubits = num_qubits
         self._num_clbits = num_clbits
+        self._name = name or "logical_circuit"
+        self._metadata = dict(metadata or {})
         self._layers: list[Layer] = []
 
     def x(self, qubit: int) -> None:
@@ -362,7 +374,10 @@ class LogicalCircuitBuilder:
         self._append(Operation("swap", qubits=(left, right), params={"left": left, "right": right}))
 
     def unitary(self, matrix: Any, qubits: Sequence[int], label: str | None = None) -> None:
-        self._append(Operation("unitary", qubits=tuple(qubits), params={"matrix": matrix}, label=label))
+        qubits_tuple = tuple(qubits)
+        payload = unitary_payload(matrix, qubits_tuple)
+        operation_label = label or (matrix.name if isinstance(matrix, CustomUnitary) else None)
+        self._append(Operation("unitary", qubits=qubits_tuple, params=payload, label=operation_label))
 
     def measure(self, qubit: int, clbit: int) -> None:
         self._num_clbits = max(self._num_clbits, clbit + 1)
@@ -385,14 +400,49 @@ class LogicalCircuitBuilder:
         for qubit in range(self._num_qubits):
             self.measure(qubit, qubit)
 
+    def compose(
+        self,
+        circuit_like: Any,
+        *,
+        qubit_map: dict[int, int] | None = None,
+        clbit_map: dict[int, int] | None = None,
+        label: str | None = None,
+    ) -> None:
+        sub_ir = _logical_ir_for_composition(circuit_like)
+        qmap = _resolve_mapping(
+            "qubit",
+            size=sub_ir.n_qubits,
+            target_size=self._num_qubits,
+            mapping=qubit_map,
+        )
+        cmap = _resolve_mapping(
+            "clbit",
+            size=sub_ir.n_clbits,
+            target_size=self._num_clbits,
+            mapping=clbit_map,
+        )
+        origin = label or sub_ir.name
+        for layer in sub_ir.layers:
+            remapped = Layer()
+            for operation in layer.operations:
+                remapped.add(_remap_operation(operation, qmap, cmap, origin))
+            self._layers.append(remapped)
+        if sub_ir.outputs:
+            output_layer = Layer()
+            for operation in sub_ir.outputs:
+                output_layer.add(_remap_operation(operation, qmap, cmap, origin))
+            self._layers.append(output_layer)
+        self._metadata.setdefault("subcircuits", []).append(origin)
+
     def build(self) -> CircuitIR:
         return CircuitIR(
-            name="logical_circuit",
+            name=self._name,
             n_qubits=self._num_qubits,
             n_clbits=self._num_clbits,
             inputs=[],
             layers=list(self._layers),
             outputs=[],
+            metadata=dict(self._metadata),
         )
 
     def _append(self, operation: Operation) -> None:
@@ -402,8 +452,84 @@ class LogicalCircuitBuilder:
 
 
 class LogicalCircuitFactory:
-    def create(self, num_qubits: int, num_clbits: int = 0) -> LogicalCircuitBuilder:
-        return LogicalCircuitBuilder(num_qubits, num_clbits)
+    def create(
+        self,
+        num_qubits: int,
+        num_clbits: int = 0,
+        *,
+        name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> LogicalCircuitBuilder:
+        return LogicalCircuitBuilder(num_qubits, num_clbits, name=name, metadata=metadata)
+
+
+def _logical_ir_for_composition(circuit_like: Any) -> CircuitIR:
+    if isinstance(circuit_like, LogicalCircuitBuilder):
+        return circuit_like.build()
+    if isinstance(circuit_like, CircuitIR):
+        return circuit_like
+    if isinstance(circuit_like, QC):
+        return CompactAdapter().parse(circuit_like)
+    if hasattr(circuit_like, "circuit") and getattr(circuit_like, "circuit_format", None) == "ir":
+        return _logical_ir_for_composition(circuit_like.circuit)
+    if hasattr(circuit_like, "metadata") and getattr(circuit_like, "circuit", None) is not None:
+        metadata = getattr(circuit_like, "metadata", {}) or {}
+        if metadata.get("circuit_format") == "ir":
+            return _logical_ir_for_composition(circuit_like.circuit)
+    raise CircuitValidationError(
+        f"Composicao logica requer CircuitIR/QC/builder/wrapper IR; recebido {type(circuit_like).__name__}"
+    )
+
+
+def _resolve_mapping(
+    label: str,
+    *,
+    size: int,
+    target_size: int,
+    mapping: dict[int, int] | None,
+) -> dict[int, int]:
+    if size == 0:
+        return {}
+    if mapping is None:
+        if size != target_size:
+            raise CircuitValidationError(
+                f"Mapeamento explicito de {label}s e obrigatorio quando os registradores diferem"
+            )
+        mapping = {index: index for index in range(size)}
+    expected = set(range(size))
+    if set(mapping) != expected:
+        raise CircuitValidationError(f"Mapeamento de {label}s deve cobrir exatamente {sorted(expected)}")
+    values = tuple(mapping[index] for index in range(size))
+    if len(set(values)) != len(values):
+        raise CircuitValidationError(f"Mapeamento de {label}s possui destinos duplicados")
+    if any(value < 0 or value >= target_size for value in values):
+        raise CircuitValidationError(f"Mapeamento de {label}s aponta para destino fora do intervalo")
+    return dict(mapping)
+
+
+def _remap_operation(
+    operation: Operation,
+    qubit_map: dict[int, int],
+    clbit_map: dict[int, int],
+    origin: str,
+) -> Operation:
+    qubits = tuple(qubit_map[index] for index in operation.qubits)
+    clbits = tuple(clbit_map[index] for index in operation.clbits)
+    params = dict(operation.params)
+    if "control" in params:
+        params["control"] = qubit_map[params["control"]]
+    if "target" in params:
+        params["target"] = qubit_map[params["target"]]
+    if "controls" in params:
+        params["controls"] = tuple(qubit_map[index] for index in params["controls"])
+    if "left" in params:
+        params["left"] = qubit_map[params["left"]]
+    if "right" in params:
+        params["right"] = qubit_map[params["right"]]
+    if "target_order" in params:
+        params["target_order"] = tuple(qubit_map[index] for index in params["target_order"])
+    params.setdefault("origin", origin)
+    return Operation(operation.kind, qubits=qubits, clbits=clbits, params=params, label=operation.label)
 
 
 # ============================================================

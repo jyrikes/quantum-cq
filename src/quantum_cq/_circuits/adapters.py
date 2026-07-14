@@ -113,6 +113,9 @@ def circuit_format_of(circuit_like) -> str:
     if isinstance(circuit_like, CircuitIR):
         return "ir"
 
+    if isinstance(circuit_like, LogicalCircuitBuilder):
+        return "ir"
+
     QuantumCircuit = _require_qiskit()
     if isinstance(circuit_like, QuantumCircuit):
         return "qiskit"
@@ -132,6 +135,9 @@ def export_to_qiskit(circuit_like) -> Any:
 
     if isinstance(circuit_like, CircuitIR):
         return QiskitExporter().export(circuit_like)
+
+    if isinstance(circuit_like, LogicalCircuitBuilder):
+        return QiskitExporter().export(circuit_like.build())
 
     QuantumCircuit = _require_qiskit()
     if isinstance(circuit_like, QuantumCircuit):
