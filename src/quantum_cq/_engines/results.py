@@ -23,6 +23,11 @@ class CompiledArtifact:
     capabilities_considered: Mapping[str, str] = field(default_factory=dict)
     lowering_rules: tuple[str, ...] = ()
     engine_version: str | None = None
+    context: Any = None
+    compatibility_report: Any = None
+    circuit_descriptor: Any = None
+    circuit_requirements: Any = None
+    target_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "options", MappingProxyType(dict(self.options)))

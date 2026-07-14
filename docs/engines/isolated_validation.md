@@ -130,3 +130,31 @@ Environment:
 Run 1 does not mark CUDA-Q functional on native Windows. The adapter reports
 CUDA-Q as unsupported with an explicit message directing Windows users to WSL or
 another supported environment.
+
+## Run 3 isolated validation
+
+Run 3 venvs were created outside the repository at:
+
+```text
+C:\Users\Yngrid Kalinne\.codex\venvs
+```
+
+Commands:
+
+```bash
+python -m pip install ".[dev,<engine>]"
+python -m pytest -q tests/test_multi_engine_core.py tests/test_run2_engine_contracts.py tests/test_run3_circuit_service.py tests/adapters/test_<engine>_engine.py
+```
+
+Results:
+
+| Engine | Venv | Key engine version | Qiskit | NumPy | Result |
+| --- | --- | --- | --- | --- | --- |
+| PennyLane | `quantum-cq-run3-pennylane` | 0.45.1 | 2.5.0 | 2.5.1 | 23 passed, 5 skipped, 1 PennyLane shots deprecation warning |
+| Cirq | `quantum-cq-run3-cirq` | 1.7.0 | 2.5.0 | 2.5.1 | 25 passed, 3 skipped |
+| Amazon Braket SDK | `quantum-cq-run3-braket` | 1.123.0.post0 | 2.5.0 | 2.4.6 | 24 passed, 4 skipped |
+
+The Run 3 isolated checks include shared multi-engine tests, Run 2 contracts,
+custom circuit/unitary tests, and adapter-specific local tests. Braket remains
+local-simulator only. CUDA-Q remains non-operational on native Windows in this
+run.

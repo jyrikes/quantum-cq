@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import Any, Literal
 
 from quantum_cq._engines.capabilities import EngineCapabilities
 
@@ -45,6 +45,14 @@ class CompatibilityReport:
     lowerings: tuple[str, ...] = ()
     status: CompatibilityStatus = "compatible"
     reason: str = ""
+    circuit_requirements: Any = None
+    target: Any = None
+    hardware: dict[str, Any] = field(default_factory=dict)
+    unknowns: tuple[str, ...] = ()
+    placement_required: bool = False
+    routing_required: bool = False
+    scheduling_required: bool = False
+    physical_execution_claimed: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "requirements", tuple(self.requirements))
@@ -57,6 +65,8 @@ class CompatibilityReport:
         object.__setattr__(self, "missing", tuple(self.missing))
         object.__setattr__(self, "alternatives_used", MappingProxyType(dict(self.alternatives_used)))
         object.__setattr__(self, "lowerings", tuple(self.lowerings))
+        object.__setattr__(self, "hardware", MappingProxyType(dict(self.hardware)))
+        object.__setattr__(self, "unknowns", tuple(self.unknowns))
 
     @property
     def compatible(self) -> bool:
@@ -72,6 +82,9 @@ class CompatibilityEvaluator:
         component: str,
         capabilities: EngineCapabilities,
         requirements: tuple[ComponentRequirement, ...],
+        circuit_requirements: Any = None,
+        target: Any = None,
+        hardware: dict[str, Any] | None = None,
     ) -> CompatibilityReport:
         satisfied: list[str] = []
         missing: list[str] = []
@@ -135,6 +148,14 @@ class CompatibilityEvaluator:
             lowerings=tuple(lowerings),
             status=status,
             reason=reason,
+            circuit_requirements=circuit_requirements,
+            target=target,
+            hardware=hardware or {},
+            unknowns=tuple((hardware or {}).get("unknowns", ())),
+            placement_required=bool((hardware or {}).get("placement_required", False)),
+            routing_required=bool((hardware or {}).get("routing_required", False)),
+            scheduling_required=bool((hardware or {}).get("scheduling_required", False)),
+            physical_execution_claimed=False,
         )
 
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from quantum_cq._circuits.compact import CircuitIR
+from quantum_cq._core.circuits import CircuitRequirements, CircuitService
 from quantum_cq._engines.availability import EngineAvailability
 from quantum_cq._engines.bundle import EngineBundle
 from quantum_cq._engines.capabilities import EngineCapabilities
@@ -26,9 +28,17 @@ from quantum_cq._engines.results import CompiledArtifact, EngineResult
 
 
 class EngineService:
-    def __init__(self, bundle_resolver: Any, evaluator: CompatibilityEvaluator | None = None) -> None:
+    def __init__(
+        self,
+        bundle_resolver: Any,
+        evaluator: CompatibilityEvaluator | None = None,
+        circuit_service: CircuitService | None = None,
+        hardware_service: Any = None,
+    ) -> None:
         self._bundle_resolver = bundle_resolver
         self._evaluator = evaluator or CompatibilityEvaluator()
+        self._circuit_service = circuit_service or CircuitService()
+        self._hardware_service = hardware_service
 
     def engines(self) -> list[dict[str, Any]]:
         from quantum_cq._engines.registry import engine_names
@@ -78,6 +88,8 @@ class EngineService:
         )
 
     def compile(self, circuit_like: Any, engine: str = "qiskit", **options: Any) -> CompiledArtifact:
+        target = options.pop("target", None)
+        context = options.pop("context", None)
         bundle = self._available_bundle(engine)
         capabilities = bundle.capabilities.capabilities()
         availability = bundle.availability.availability()
@@ -87,14 +99,25 @@ class EngineService:
             policy="preserve",
             for_execution=False,
         )
+        descriptor = self._circuit_service.descriptor(circuit_like, engine=bundle.engine_id)
+        circuit_requirements = self._circuit_service.requirements(circuit_like, engine=bundle.engine_id)
+        execution_context = self._execution_context(
+            engine=bundle.engine_id,
+            target=target,
+            context=context,
+            measurement_policy="preserve",
+            shots=options.get("shots"),
+            options=options,
+        )
         report = self._require_compatible(bundle.engine_id, source, capabilities, contract)
+        report = self._with_hardware_context(report, execution_context, circuit_requirements)
         emitted = bundle.emitter.emit(
             source,
             measurement_contract=contract,
             capabilities=capabilities,
             **options,
         )
-        return bundle.compiler.compile(
+        artifact = bundle.compiler.compile(
             emitted,
             source_ir=source if isinstance(source, CircuitIR) else None,
             measurement_contract=contract,
@@ -102,6 +125,16 @@ class EngineService:
             availability=availability,
             lowering_rules=report.lowerings,
             **options,
+        )
+        return replace(
+            artifact,
+            context=execution_context,
+            compatibility_report=report,
+            circuit_descriptor=descriptor,
+            circuit_requirements=circuit_requirements,
+            target_fingerprint=None
+            if execution_context is None or execution_context.architecture is None
+            else execution_context.architecture.fingerprint,
         )
 
     def run(
@@ -112,6 +145,8 @@ class EngineService:
         shots: int = 1024,
         **options: Any,
     ) -> EngineResult:
+        target = options.pop("target", None)
+        context = options.pop("context", None)
         bundle = self._available_bundle(engine)
         if isinstance(circuit_like, CompiledArtifact):
             artifact = circuit_like
@@ -124,6 +159,10 @@ class EngineService:
                 raise CapabilityMismatchError(
                     f"CompiledArtifact foi compilado com shots={compiled_shots}, "
                     f"mas a execucao solicitou shots={shots}"
+                )
+            if target is not None or context is not None:
+                raise CapabilityMismatchError(
+                    "target/context nao podem ser alterados em um CompiledArtifact ja criado"
                 )
         else:
             policy = str(options.pop("measurement", "auto")).lower()
@@ -138,6 +177,17 @@ class EngineService:
                 for_execution=True,
             )
             report = self._require_compatible(bundle.engine_id, source, capabilities, contract)
+            descriptor = self._circuit_service.descriptor(circuit_like, engine=bundle.engine_id)
+            circuit_requirements = self._circuit_service.requirements(circuit_like, engine=bundle.engine_id)
+            execution_context = self._execution_context(
+                engine=bundle.engine_id,
+                target=target,
+                context=context,
+                measurement_policy=policy,
+                shots=shots,
+                options=options,
+            )
+            report = self._with_hardware_context(report, execution_context, circuit_requirements)
             emitted = bundle.emitter.emit(
                 source,
                 measurement_contract=contract,
@@ -157,23 +207,57 @@ class EngineService:
                 lowering_rules=report.lowerings,
                 **compile_options,
             )
+            artifact = replace(
+                artifact,
+                context=execution_context,
+                compatibility_report=report,
+                circuit_descriptor=descriptor,
+                circuit_requirements=circuit_requirements,
+                target_fingerprint=None
+                if execution_context is None or execution_context.architecture is None
+                else execution_context.architecture.fingerprint,
+            )
 
+        self._reject_unimplemented_physical_execution(artifact)
         execution = bundle.executor.execute(artifact, shots=shots, **options)
         return bundle.decoder.decode(execution, artifact, shots=shots, **options)
 
     def compatibility(
         self,
+        circuit_like: Any = None,
         *,
-        component: str,
+        component: str | None = None,
         engine: str,
-        requirements: tuple[ComponentRequirement, ...],
+        requirements: tuple[ComponentRequirement, ...] | None = None,
+        target: Any = None,
     ) -> CompatibilityReport:
         bundle = self._available_bundle(engine)
-        return self._evaluator.evaluate(
-            component=component,
+        if requirements is None:
+            if circuit_like is None:
+                raise TypeError("compatibility requer circuit_like ou requirements")
+            circuit_requirements = self._circuit_service.requirements(circuit_like, engine=engine)
+            requirements = _requirements_from_circuit_requirements(circuit_requirements)
+            component = component or getattr(circuit_like, "name", type(circuit_like).__name__)
+        else:
+            circuit_requirements = None
+        report = self._evaluator.evaluate(
+            component=component or "circuit",
             capabilities=bundle.capabilities.capabilities(),
             requirements=requirements,
+            circuit_requirements=circuit_requirements,
+            target=target,
         )
+        if target is not None and circuit_requirements is not None:
+            execution_context = self._execution_context(
+                engine=bundle.engine_id,
+                target=target,
+                context=None,
+                measurement_policy="preserve",
+                shots=None,
+                options={},
+            )
+            report = self._with_hardware_context(report, execution_context, circuit_requirements)
+        return report
 
     def _bundle(self, engine: str) -> EngineBundle:
         return self._bundle_resolver(engine)
@@ -193,10 +277,13 @@ class EngineService:
         policy: MeasurementPolicy,
         for_execution: bool,
     ) -> tuple[Any, MeasurementContract | None]:
-        if bundle.engine_id == "qiskit" and not isinstance(circuit_like, CircuitIR):
+        if bundle.engine_id == "qiskit" and self._circuit_service._is_qiskit_native(circuit_like):
             return circuit_like, None
 
-        ir = to_logical_ir(circuit_like)
+        try:
+            ir = self._circuit_service.to_ir(circuit_like)
+        except TypeError:
+            ir = to_logical_ir(circuit_like)
         if for_execution:
             return prepare_ir_for_execution(ir, policy=policy)
         return ir, measurement_contract_from_ir(ir, policy=policy)
@@ -229,6 +316,81 @@ class EngineService:
             )
         return report
 
+    def _execution_context(
+        self,
+        *,
+        engine: str,
+        target: Any,
+        context: Any,
+        measurement_policy: str,
+        shots: int | None,
+        options: dict[str, Any],
+    ) -> Any:
+        if context is not None:
+            return context
+        if target is None:
+            return None
+        hardware_service = self._hardware_service
+        if hardware_service is None:
+            from quantum_cq._hardware.service import default_hardware_service
+
+            hardware_service = default_hardware_service()
+        return hardware_service.execution_context(
+            engine=engine,
+            target=target,
+            measurement_policy=measurement_policy,
+            shots=shots,
+            options=options,
+        )
+
+    def _with_hardware_context(
+        self,
+        report: CompatibilityReport,
+        context: Any,
+        circuit_requirements: CircuitRequirements,
+    ) -> CompatibilityReport:
+        if context is None or getattr(context, "target", None) is None:
+            return replace(report, circuit_requirements=circuit_requirements)
+        hardware_service = self._hardware_service
+        if hardware_service is None:
+            from quantum_cq._hardware.service import default_hardware_service
+
+            hardware_service = default_hardware_service()
+        hints = hardware_service.compatibility_hints(
+            context.target,
+            required_qubits=circuit_requirements.min_qubits,
+        )
+        missing = report.missing
+        status = report.status
+        reason = report.reason
+        if hints.get("insufficient_qubits"):
+            missing = (*missing, "target_qubits")
+            status = "incompatible"
+            reason = "target has insufficient physical qubits"
+        return replace(
+            report,
+            circuit_requirements=circuit_requirements,
+            target=context.target,
+            hardware=hints,
+            unknowns=tuple(hints.get("unknowns", ())),
+            placement_required=bool(hints.get("placement_required", False)),
+            routing_required=bool(hints.get("routing_required", False)),
+            scheduling_required=bool(hints.get("scheduling_required", False)),
+            missing=missing,
+            status=status,
+            reason=reason,
+            physical_execution_claimed=False,
+        )
+
+    def _reject_unimplemented_physical_execution(self, artifact: CompiledArtifact) -> None:
+        context = artifact.context
+        target = getattr(context, "target", None)
+        descriptor = getattr(target, "descriptor", None)
+        if descriptor is not None and getattr(descriptor, "target_type", None) == "physical":
+            raise CapabilityMismatchError(
+                "Execucao em target fisico/remoto ainda nao foi implementada nesta run"
+            )
+
 
 def _requirements_from_ir(
     ir: CircuitIR,
@@ -248,6 +410,15 @@ def _requirements_from_ir(
     if contract and contract.automatic:
         features.add("auto_measure_all")
     return tuple(ComponentRequirement(feature) for feature in sorted(features))
+
+
+def _requirements_from_circuit_requirements(
+    requirements: CircuitRequirements,
+) -> tuple[ComponentRequirement, ...]:
+    return tuple(
+        ComponentRequirement(feature, category="circuit")
+        for feature in requirements.features
+    )
 
 
 def default_engine_service() -> EngineService:

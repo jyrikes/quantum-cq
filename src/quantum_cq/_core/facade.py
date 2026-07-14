@@ -390,6 +390,89 @@ class CQ:
         )
 
     @staticmethod
+    def circuit(
+        qubits: int,
+        clbits: int = 0,
+        *,
+        name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        from quantum_cq._circuits.compact import LogicalCircuitBuilder
+
+        return LogicalCircuitBuilder(qubits, clbits, name=name, metadata=metadata)
+
+    @staticmethod
+    def unitary(
+        matrix: Any,
+        *,
+        name: str | None = None,
+        validate: bool = True,
+        atol: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        from quantum_cq._circuits.unitary import create_unitary
+
+        return create_unitary(
+            matrix,
+            name=name,
+            validate=validate,
+            atol=atol,
+            metadata=metadata,
+        )
+
+    @staticmethod
+    def compatibility(
+        circuit_like: Any,
+        *,
+        engine: str | None = None,
+        target: Any = None,
+    ) -> Any:
+        from quantum_cq._engines.service import default_engine_service
+
+        return default_engine_service().compatibility(
+            circuit_like,
+            engine=engine or "qiskit",
+            target=target,
+        )
+
+    @staticmethod
+    def manual_target(
+        *,
+        target_id: str,
+        qubits: int | tuple[str, ...],
+        operations: tuple[str, ...] | list[str],
+        target_type: str,
+        name: str | None = None,
+        provider: str = "manual",
+        aliases: tuple[str, ...] = (),
+        topology: tuple[Any, ...] = (),
+        snapshot: Any = None,
+        provenance: Any = None,
+        paradigm: str = "gate_model",
+    ) -> Any:
+        from quantum_cq._hardware.service import default_hardware_service
+
+        return default_hardware_service().manual_target(
+            target_id=target_id,
+            qubits=qubits,
+            operations=operations,
+            target_type=target_type,  # type: ignore[arg-type]
+            name=name,
+            provider=provider,
+            aliases=aliases,
+            topology=topology,
+            snapshot=snapshot,
+            provenance=provenance,
+            paradigm=paradigm,
+        )
+
+    @staticmethod
+    def target_from_qiskit(target_like: Any, *, name: str | None = None) -> Any:
+        from quantum_cq._hardware.providers.qiskit import target_from_qiskit
+
+        return target_from_qiskit(target_like, name=name)
+
+    @staticmethod
     def primitive(
         name: str,
         *,
