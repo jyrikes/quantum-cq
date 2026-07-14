@@ -2,10 +2,13 @@ import os
 import subprocess
 import sys
 import textwrap
+import ast
+from pathlib import Path
 
 import pytest
 
 from quantum_cq import CQ, CatalogEntry
+from quantum_cq._core.compatibility import ComponentRequirement
 from quantum_cq._core.components import ComponentDescriptor, ComponentService
 from quantum_cq._core.handlers import FactoryRegistry
 from quantum_cq.adapters import LogicalCircuitFactory
@@ -76,7 +79,52 @@ def test_catalog_filters_by_engine_using_declared_requirements():
     braket_entries = CQ.catalog(category="primitive", name="qft", engine="braket")
 
     assert [entry.name for entry in qiskit_entries] == ["deutsch"]
-    assert braket_entries == ()
+    assert [entry.name for entry in braket_entries] == ["qft"]
+    assert braket_entries[0].compatibility is not None
+    assert braket_entries[0].compatibility.status in {"incompatible", "not_tested"}
+
+
+def test_catalog_does_not_instantiate_default_encoders(monkeypatch):
+    import quantum_cq._core.handlers as handlers
+
+    def explode(*args, **kwargs):
+        raise AssertionError("default encoding registry instantiated")
+
+    monkeypatch.setattr(handlers, "default_encoding_registry", explode)
+    service = ComponentService()
+
+    entries = service.catalog(category="encoding", name="basis")
+
+    assert [entry.name for entry in entries] == ["basis"]
+
+
+def test_catalog_preserves_advanced_requirement_descriptors():
+    registry = FactoryRegistry()
+    registry.register(
+        "advanced",
+        lambda: object(),
+        descriptor=ComponentDescriptor(
+            name="advanced",
+            category="primitive",
+            requirements=(
+                ComponentRequirement(
+                    "mcx",
+                    alternatives=("ccx",),
+                    allow_lowered=False,
+                    description="native multi-control requirement",
+                    category="gate",
+                ),
+            ),
+        ),
+    )
+    service = ComponentService(primitive_registry=registry)
+
+    entry = service.catalog(category="primitive", name="advanced")[0]
+
+    assert entry.requirements[0].feature == "mcx"
+    assert entry.requirements[0].alternatives == ("ccx",)
+    assert entry.requirements[0].allow_lowered is False
+    assert entry.requirements[0].category == "gate"
 
 
 def test_catalog_does_not_load_optional_engine_sdks_on_root_use():
@@ -104,6 +152,18 @@ def test_catalog_does_not_load_optional_engine_sdks_on_root_use():
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_component_service_does_not_import_engine_implementations():
+    path = Path("src/quantum_cq/_core/components.py")
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imported = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module
+    }
+
+    assert not any(module.startswith("quantum_cq._engines") for module in imported)
 
 
 def test_representative_components_can_be_built_logically_for_optional_engines():

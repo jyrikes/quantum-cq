@@ -6,12 +6,12 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
-from quantum_cq._engines.compatibility import (
+from quantum_cq._core.compatibility import (
     CompatibilityEvaluator,
     CompatibilityReport,
     ComponentRequirement,
+    normalize_requirement,
 )
-from quantum_cq._engines.capabilities import EngineCapabilities
 
 
 @dataclass(frozen=True)
@@ -23,10 +23,11 @@ class ComponentDescriptor:
     description: str = ""
     role: str = ""
     access_path: str = ""
-    requirements: tuple[str, ...] = ()
+    requirements: tuple[str | ComponentRequirement | Mapping[str, Any], ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "requirements", tuple(self.requirements))
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
 
@@ -60,10 +61,11 @@ class ComponentService:
         algorithm_registry: Any = None,
         navigation_registry: Any = None,
         evaluator: CompatibilityEvaluator | None = None,
-        capability_resolver: Callable[[str], EngineCapabilities] | None = None,
+        capability_resolver: Callable[[str], Any] | None = None,
     ) -> None:
         from quantum_cq._core.handlers import (
             default_algorithm_registry,
+            default_component_descriptor_registries,
             default_encoding_registry,
             default_navigation_registry,
             default_operator_registry,
@@ -71,19 +73,28 @@ class ComponentService:
             default_primitive_registry,
         )
 
+        descriptor_registries = default_component_descriptor_registries()
         self._registries = {
-            "encoding": encoding_registry or default_encoding_registry(),
-            "oracle": oracle_registry or default_oracle_registry(),
-            "primitive": primitive_registry or default_primitive_registry(),
-            "operator": operator_registry or default_operator_registry(),
-            "algorithm": algorithm_registry or default_algorithm_registry(),
-            "navigation": navigation_registry or default_navigation_registry(),
+            "encoding": encoding_registry or descriptor_registries["encoding"],
+            "oracle": oracle_registry or descriptor_registries["oracle"],
+            "primitive": primitive_registry or descriptor_registries["primitive"],
+            "operator": operator_registry or descriptor_registries["operator"],
+            "algorithm": algorithm_registry or descriptor_registries["algorithm"],
+            "navigation": navigation_registry or descriptor_registries["navigation"],
+        }
+        self._registry_factories = {
+            "encoding": default_encoding_registry,
+            "oracle": default_oracle_registry,
+            "primitive": default_primitive_registry,
+            "operator": default_operator_registry,
+            "algorithm": default_algorithm_registry,
+            "navigation": default_navigation_registry,
         }
         self._evaluator = evaluator or CompatibilityEvaluator()
         self._capability_resolver = capability_resolver
 
     def resolve(self, category: str, name: str, *args: Any, **kwargs: Any) -> Any:
-        registry = self._registries[category]
+        registry = self._operational_registry(category)
         if hasattr(registry, "create"):
             return registry.create(name, *args, **kwargs)
         if args or kwargs:
@@ -103,13 +114,6 @@ class ComponentService:
             for descriptor in self._descriptors()
             if _matches(descriptor, category=category, status=status, name=name)
         ]
-        if engine is not None:
-            entries = [
-                entry
-                for entry in entries
-                if entry.compatibility is not None
-                and entry.compatibility.status in {"compatible", "compatible_after_lowering"}
-            ]
         return tuple(entries)
 
     def requirements(self, category: str, name: str) -> tuple[ComponentRequirement, ...]:
@@ -129,6 +133,14 @@ class ComponentService:
                 for item in registry.names()
             )
         return tuple(descriptors)
+
+    def _operational_registry(self, category: str) -> Any:
+        registry = self._registries[category]
+        if hasattr(registry, "get") and not getattr(registry, "descriptor_only", False):
+            return registry
+        registry = self._registry_factories[category]()
+        self._registries[category] = registry
+        return registry
 
     def _entry(self, descriptor: ComponentDescriptor, *, engine: str | None) -> CatalogEntry:
         requirements = _requirements(descriptor)
@@ -163,7 +175,7 @@ class ComponentService:
 
 
 def _requirements(descriptor: ComponentDescriptor) -> tuple[ComponentRequirement, ...]:
-    return tuple(ComponentRequirement(feature) for feature in descriptor.requirements)
+    return tuple(normalize_requirement(feature) for feature in descriptor.requirements)
 
 
 def _matches(

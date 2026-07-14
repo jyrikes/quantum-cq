@@ -83,6 +83,26 @@ class HandlerRegistry(Generic[T]):
         return str(resolved_name), resolved_item
 
 
+class DescriptorRegistry:
+    """Read-only descriptor view over registered public components."""
+
+    descriptor_only = True
+
+    def __init__(self, descriptors: tuple[ComponentDescriptor, ...]) -> None:
+        self._descriptors = {descriptor.name: descriptor for descriptor in descriptors}
+
+    def names(self) -> list[str]:
+        return list(self._descriptors)
+
+    def descriptor(self, name: str) -> ComponentDescriptor:
+        if name not in self._descriptors:
+            raise KeyError(f"Descriptor '{name}' nao registrado")
+        return self._descriptors[name]
+
+    def descriptors(self) -> tuple[ComponentDescriptor, ...]:
+        return tuple(self._descriptors[name] for name in self.names())
+
+
 class EncodingRegistry(HandlerRegistry[Any]):
     pass
 
@@ -150,6 +170,212 @@ def _descriptor(
     )
 
 
+def default_encoding_descriptors() -> tuple[ComponentDescriptor, ...]:
+    specs = {
+        "basis": ("basis", ("x",)),
+        "angle": ("rotation", ("ry",)),
+        "phase": ("rotation", ("p",)),
+        "amplitude": ("state_preparation", ("initialize",)),
+        "dense_angle": ("rotation", ("rx", "ry")),
+        "z_feature_map": ("feature_map", ("h", "p")),
+        "zz_feature_map": ("feature_map", ("h", "cx", "rz")),
+        "pauli_feature_map": ("feature_map", ("h", "rx", "ry", "rz")),
+        "iqp": ("feature_map", ("h", "rz", "cx")),
+        "data_reuploading": ("rotation", ("rx", "ry", "rz")),
+    }
+    return tuple(
+        _descriptor(
+            name,
+            "encoding",
+            family=family,
+            role="state_encoding",
+            access_path=f"CQ.state(..., encoding='{name}')",
+            requirements=requirements,
+        )
+        for name, (family, requirements) in specs.items()
+    )
+
+
+def default_oracle_descriptors() -> tuple[ComponentDescriptor, ...]:
+    return (
+        _descriptor(
+            "deutsch",
+            "oracle",
+            family="boolean_oracle",
+            role="predicate_oracle",
+            access_path="CQ.oracle('deutsch', case=...)",
+            requirements=("x", "cx"),
+        ),
+        _descriptor(
+            "bernstein_vazirani",
+            "oracle",
+            family="boolean_oracle",
+            role="predicate_oracle",
+            access_path="CQ.oracle('bernstein_vazirani', secret=...)",
+            requirements=("cx",),
+        ),
+        _descriptor(
+            "deutsch_jozsa",
+            "oracle",
+            family="boolean_oracle",
+            role="predicate_oracle",
+            access_path="CQ.oracle('deutsch_jozsa', ...)",
+            requirements=("x", "cx"),
+        ),
+        _descriptor(
+            "phase_marked_state",
+            "oracle",
+            family="oracle",
+            role="phase_oracle",
+            access_path="CQ.oracle('phase_marked_state', marked_state=...)",
+            requirements=("x", "h", "mcx"),
+        ),
+    )
+
+
+def default_primitive_descriptors() -> tuple[ComponentDescriptor, ...]:
+    return (
+        _descriptor(
+            "uniform_superposition",
+            "primitive",
+            family="state_preparation",
+            role="state_preparation",
+            access_path="CQ.primitive('uniform_superposition')",
+            requirements=("h",),
+        ),
+        _descriptor(
+            "standard_diffuser",
+            "primitive",
+            family="operator",
+            role="diffuser",
+            access_path="CQ.diffuser(num_qubits)",
+            requirements=("x", "h", "mcx"),
+        ),
+        _descriptor(
+            "qft",
+            "primitive",
+            family="fourier_transform",
+            role="operator",
+            access_path="CQ.qft(num_qubits)",
+            requirements=("h", "cp", "swap"),
+        ),
+        _descriptor(
+            "inverse_qft",
+            "primitive",
+            family="fourier_transform",
+            role="operator",
+            access_path="CQ.iqft(num_qubits)",
+            requirements=("h", "cp", "swap"),
+        ),
+        _descriptor(
+            "coined_quantum_walk",
+            "primitive",
+            family="navigation",
+            role="walk",
+            access_path="CQ.walk(graph, steps=...)",
+            requirements=("h", "swap"),
+        ),
+    )
+
+
+def default_navigation_descriptors() -> tuple[ComponentDescriptor, ...]:
+    return (
+        _descriptor(
+            "addressed_memory",
+            "navigation",
+            family="navigation",
+            role="memory_load_oracle",
+            access_path="CQ.nav(values)",
+            requirements=("x", "cx", "mcx"),
+        ),
+        _descriptor(
+            "graph_navigation",
+            "navigation",
+            family="navigation",
+            role="neighbor_oracle",
+            access_path="CQ.graph_nav(graph)",
+            requirements=("x", "cx", "mcx"),
+        ),
+    )
+
+
+def default_operator_descriptors() -> tuple[ComponentDescriptor, ...]:
+    return (
+        _descriptor(
+            "phase_rotation",
+            "operator",
+            family="operator",
+            role="unitary",
+            access_path="CQ.phase_rotation(phase)",
+            requirements=("p",),
+        ),
+    )
+
+
+def default_algorithm_descriptors() -> tuple[ComponentDescriptor, ...]:
+    return (
+        _descriptor(
+            "deutsch",
+            "algorithm",
+            family="oracle_algorithm",
+            role="classification",
+            access_path="CQ.deutsch(case=...)",
+            requirements=("x", "h", "cx", "measure"),
+        ),
+        _descriptor(
+            "deutsch_jozsa",
+            "algorithm",
+            family="oracle_algorithm",
+            role="classification",
+            access_path="CQ.dj(kind=..., qubits=...)",
+            requirements=("x", "h", "cx", "measure"),
+        ),
+        _descriptor(
+            "bernstein_vazirani",
+            "algorithm",
+            family="oracle_algorithm",
+            role="bitstring_recovery",
+            access_path="CQ.bv(secret)",
+            requirements=("x", "h", "cx", "measure"),
+        ),
+        _descriptor(
+            "grover",
+            "algorithm",
+            family="search",
+            role="amplitude_amplification",
+            access_path="CQ.grover(marked_state)",
+            requirements=("x", "h", "mcx", "measure"),
+        ),
+        _descriptor(
+            "phase_estimation",
+            "algorithm",
+            family="phase_estimation",
+            role="estimation",
+            access_path="CQ.algorithm('phase_estimation')",
+            requirements=("x", "h", "cp", "measure"),
+        ),
+        _descriptor(
+            "qpe",
+            "algorithm",
+            family="phase_estimation",
+            role="estimation",
+            access_path="CQ.qpe(phase, precision)",
+            requirements=("x", "h", "cp", "measure"),
+        ),
+    )
+
+
+def default_component_descriptor_registries() -> dict[str, DescriptorRegistry]:
+    return {
+        "encoding": DescriptorRegistry(default_encoding_descriptors()),
+        "oracle": DescriptorRegistry(default_oracle_descriptors()),
+        "primitive": DescriptorRegistry(default_primitive_descriptors()),
+        "operator": DescriptorRegistry(default_operator_descriptors()),
+        "algorithm": DescriptorRegistry(default_algorithm_descriptors()),
+        "navigation": DescriptorRegistry(default_navigation_descriptors()),
+    }
+
+
 def default_encoding_registry(circuit_factory: Any = None) -> EncodingRegistry:
     if circuit_factory is None:
         from quantum_cq._circuits.adapters import QiskitCircuitFactory
@@ -170,18 +396,7 @@ def default_encoding_registry(circuit_factory: Any = None) -> EncodingRegistry:
     )
 
     registry = EncodingRegistry()
-    descriptors = {
-        "basis": ("basis", ("x",)),
-        "angle": ("rotation", ("ry",)),
-        "phase": ("rotation", ("p",)),
-        "amplitude": ("state_preparation", ("initialize",)),
-        "dense_angle": ("rotation", ("rx", "ry")),
-        "z_feature_map": ("feature_map", ("h", "p")),
-        "zz_feature_map": ("feature_map", ("h", "cx", "rz")),
-        "pauli_feature_map": ("feature_map", ("h", "rx", "ry", "rz")),
-        "iqp": ("feature_map", ("h", "rz", "cx")),
-        "data_reuploading": ("rotation", ("rx", "ry", "rz")),
-    }
+    descriptors = {descriptor.name: descriptor for descriptor in default_encoding_descriptors()}
     for encoder in (
         BasisEncoding(circuit_factory=circuit_factory),
         AngleEncoding(circuit_factory=circuit_factory),
@@ -194,17 +409,9 @@ def default_encoding_registry(circuit_factory: Any = None) -> EncodingRegistry:
         IQPEncoding(circuit_factory=circuit_factory),
         DataReUploadingEncoding(circuit_factory=circuit_factory),
     ):
-        family, requirements = descriptors[encoder.name]
         registry.register(
             encoder,
-            descriptor=_descriptor(
-                encoder.name,
-                "encoding",
-                family=family,
-                role="state_encoding",
-                access_path=f"CQ.state(..., encoding='{encoder.name}')",
-                requirements=requirements,
-            ),
+            descriptor=descriptors[encoder.name],
         )
 
     return registry
@@ -214,38 +421,18 @@ def default_oracle_registry(circuit_factory: Any = None) -> OracleRegistry:
     from quantum_cq._circuits.oracles import BernsteinVaziraniOracle, DeutschJozsaOracle, DeutschOracle, PhaseMarkedStateOracle
 
     registry = OracleRegistry()
+    descriptors = {descriptor.name: descriptor for descriptor in default_oracle_descriptors()}
     registry.register(
         DeutschOracle,
-        descriptor=_descriptor(
-            "deutsch",
-            "oracle",
-            family="boolean_oracle",
-            role="predicate_oracle",
-            access_path="CQ.oracle('deutsch', case=...)",
-            requirements=("x", "cx"),
-        ),
+        descriptor=descriptors["deutsch"],
     )
     registry.register(
         BernsteinVaziraniOracle,
-        descriptor=_descriptor(
-            "bernstein_vazirani",
-            "oracle",
-            family="boolean_oracle",
-            role="predicate_oracle",
-            access_path="CQ.oracle('bernstein_vazirani', secret=...)",
-            requirements=("cx",),
-        ),
+        descriptor=descriptors["bernstein_vazirani"],
     )
     registry.register(
         DeutschJozsaOracle,
-        descriptor=_descriptor(
-            "deutsch_jozsa",
-            "oracle",
-            family="boolean_oracle",
-            role="predicate_oracle",
-            access_path="CQ.oracle('deutsch_jozsa', ...)",
-            requirements=("x", "cx"),
-        ),
+        descriptor=descriptors["deutsch_jozsa"],
     )
     registry.register(
         "phase_marked_state",
@@ -254,14 +441,7 @@ def default_oracle_registry(circuit_factory: Any = None) -> OracleRegistry:
             circuit_factory=kwargs.pop("circuit_factory", circuit_factory),
             **kwargs,
         ),
-        descriptor=_descriptor(
-            "phase_marked_state",
-            "oracle",
-            family="oracle",
-            role="phase_oracle",
-            access_path="CQ.oracle('phase_marked_state', marked_state=...)",
-            requirements=("x", "h", "mcx"),
-        ),
+        descriptor=descriptors["phase_marked_state"],
     )
     return registry
 
@@ -277,65 +457,31 @@ def default_primitive_registry(circuit_factory: Any = None) -> PrimitiveRegistry
     from quantum_cq._navigation.walks import CoinedQuantumWalkPrimitive
 
     registry = PrimitiveRegistry()
+    descriptors = {descriptor.name: descriptor for descriptor in default_primitive_descriptors()}
     registry.register(
         "uniform_superposition",
         lambda: UniformSuperpositionPreparation(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "uniform_superposition",
-            "primitive",
-            family="state_preparation",
-            role="state_preparation",
-            access_path="CQ.primitive('uniform_superposition')",
-            requirements=("h",),
-        ),
+        descriptor=descriptors["uniform_superposition"],
     )
     registry.register(
         "standard_diffuser",
         lambda: StandardDiffuser(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "standard_diffuser",
-            "primitive",
-            family="operator",
-            role="diffuser",
-            access_path="CQ.diffuser(num_qubits)",
-            requirements=("x", "h", "mcx"),
-        ),
+        descriptor=descriptors["standard_diffuser"],
     )
     registry.register(
         "qft",
         lambda: QFTPrimitive(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "qft",
-            "primitive",
-            family="fourier_transform",
-            role="operator",
-            access_path="CQ.qft(num_qubits)",
-            requirements=("h", "cp", "swap"),
-        ),
+        descriptor=descriptors["qft"],
     )
     registry.register(
         "inverse_qft",
         lambda: InverseQFTPrimitive(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "inverse_qft",
-            "primitive",
-            family="fourier_transform",
-            role="operator",
-            access_path="CQ.iqft(num_qubits)",
-            requirements=("h", "cp", "swap"),
-        ),
+        descriptor=descriptors["inverse_qft"],
     )
     registry.register(
         "coined_quantum_walk",
         lambda: CoinedQuantumWalkPrimitive(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "coined_quantum_walk",
-            "primitive",
-            family="navigation",
-            role="walk",
-            access_path="CQ.walk(graph, steps=...)",
-            requirements=("h", "swap"),
-        ),
+        descriptor=descriptors["coined_quantum_walk"],
     )
     return registry
 
@@ -349,29 +495,16 @@ def default_navigation_registry(circuit_factory: Any = None) -> NavigationRegist
     from quantum_cq._navigation.memory import AddressedMemoryEncoding, GraphNavigationEncoding
 
     registry = NavigationRegistry()
+    descriptors = {descriptor.name: descriptor for descriptor in default_navigation_descriptors()}
     registry.register(
         "addressed_memory",
         lambda: AddressedMemoryEncoding(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "addressed_memory",
-            "navigation",
-            family="navigation",
-            role="memory_load_oracle",
-            access_path="CQ.nav(values)",
-            requirements=("x", "cx", "mcx"),
-        ),
+        descriptor=descriptors["addressed_memory"],
     )
     registry.register(
         "graph_navigation",
         lambda: GraphNavigationEncoding(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "graph_navigation",
-            "navigation",
-            family="navigation",
-            role="neighbor_oracle",
-            access_path="CQ.graph_nav(graph)",
-            requirements=("x", "cx", "mcx"),
-        ),
+        descriptor=descriptors["graph_navigation"],
     )
     return registry
 
@@ -380,17 +513,11 @@ def default_operator_registry(circuit_factory: Any = None) -> OperatorRegistry:
     from quantum_cq._circuits.primitives import PhaseRotationUnitary
 
     registry = OperatorRegistry()
+    descriptors = {descriptor.name: descriptor for descriptor in default_operator_descriptors()}
     registry.register(
         "phase_rotation",
         lambda: PhaseRotationUnitary(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "phase_rotation",
-            "operator",
-            family="operator",
-            role="unitary",
-            access_path="CQ.phase_rotation(phase)",
-            requirements=("p",),
-        ),
+        descriptor=descriptors["phase_rotation"],
     )
     return registry
 
@@ -414,20 +541,14 @@ def default_algorithm_registry(
 
     oracle_registry = oracle_registry or default_oracle_registry(circuit_factory=circuit_factory)
     registry = AlgorithmRegistry()
+    descriptors = {descriptor.name: descriptor for descriptor in default_algorithm_descriptors()}
     registry.register(
         "deutsch",
         lambda: DeutschAlgorithm(
             circuit_factory=circuit_factory,
             oracle_registry=oracle_registry,
         ),
-        descriptor=_descriptor(
-            "deutsch",
-            "algorithm",
-            family="oracle_algorithm",
-            role="classification",
-            access_path="CQ.deutsch(case=...)",
-            requirements=("x", "h", "cx", "measure"),
-        ),
+        descriptor=descriptors["deutsch"],
     )
     registry.register(
         "deutsch_jozsa",
@@ -435,14 +556,7 @@ def default_algorithm_registry(
             circuit_factory=circuit_factory,
             oracle_registry=oracle_registry,
         ),
-        descriptor=_descriptor(
-            "deutsch_jozsa",
-            "algorithm",
-            family="oracle_algorithm",
-            role="classification",
-            access_path="CQ.dj(kind=..., qubits=...)",
-            requirements=("x", "h", "cx", "measure"),
-        ),
+        descriptor=descriptors["deutsch_jozsa"],
     )
     registry.register(
         "bernstein_vazirani",
@@ -450,49 +564,21 @@ def default_algorithm_registry(
             circuit_factory=circuit_factory,
             oracle_registry=oracle_registry,
         ),
-        descriptor=_descriptor(
-            "bernstein_vazirani",
-            "algorithm",
-            family="oracle_algorithm",
-            role="bitstring_recovery",
-            access_path="CQ.bv(secret)",
-            requirements=("x", "h", "cx", "measure"),
-        ),
+        descriptor=descriptors["bernstein_vazirani"],
     )
     registry.register(
         "grover",
         lambda: GroverAlgorithm(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "grover",
-            "algorithm",
-            family="search",
-            role="amplitude_amplification",
-            access_path="CQ.grover(marked_state)",
-            requirements=("x", "h", "mcx", "measure"),
-        ),
+        descriptor=descriptors["grover"],
     )
     registry.register(
         "phase_estimation",
         lambda: PhaseEstimationAlgorithm(circuit_factory=circuit_factory),
-        descriptor=_descriptor(
-            "phase_estimation",
-            "algorithm",
-            family="phase_estimation",
-            role="estimation",
-            access_path="CQ.algorithm('phase_estimation')",
-            requirements=("x", "h", "cp", "measure"),
-        ),
+        descriptor=descriptors["phase_estimation"],
     )
     registry.register(
         "qpe",
         lambda: PhaseEstimationAlgorithm(circuit_factory=circuit_factory, alias="qpe"),
-        descriptor=_descriptor(
-            "qpe",
-            "algorithm",
-            family="phase_estimation",
-            role="estimation",
-            access_path="CQ.qpe(phase, precision)",
-            requirements=("x", "h", "cp", "measure"),
-        ),
+        descriptor=descriptors["qpe"],
     )
     return registry
