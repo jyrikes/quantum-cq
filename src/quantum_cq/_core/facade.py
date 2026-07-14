@@ -48,6 +48,7 @@ class _CQPipelineBuilder:
         self._parameters: dict[str, Any] = {}
         self._symbols: dict[str, Any] = {}
         self._circuit: Any = None
+        self._structural_navigation: Any = None
         self._input: Any = None
         self._input_adapter: Any = None
         self._engine: str | None = None
@@ -122,6 +123,10 @@ class _CQPipelineBuilder:
 
     def with_circuit(self, circuit: Any) -> "_CQPipelineBuilder":
         self._circuit = circuit
+        return self
+
+    def with_structural_navigation(self, value: Any) -> "_CQPipelineBuilder":
+        self._structural_navigation = value
         return self
 
     def with_input(self, value: Any, *, adapter: Any) -> "_CQPipelineBuilder":
@@ -235,6 +240,7 @@ class _CQPipelineBuilder:
             data=None if self._data is None else self._data.value,
             equation=self._equation,
             circuit=self._circuit,
+            structural_navigation=self._structural_navigation,
             input=self._input,
             input_adapter=self._input_adapter,
             encoding=None if self._auto else self._encoding_name,
@@ -272,6 +278,7 @@ class CQ:
         parameters: dict[str, Any] | None = None,
         symbols: dict[str, Any] | None = None,
         circuit: Any = None,
+        structural_navigation: Any = None,
         input: Any = None,
         input_adapter: Any = None,
         engine: str | None = None,
@@ -316,6 +323,8 @@ class CQ:
             builder.with_symbols(**symbols)
         if circuit is not None:
             builder.with_circuit(circuit)
+        if structural_navigation is not None:
+            builder.with_structural_navigation(structural_navigation)
         if input is not None:
             if input_adapter is None:
                 builder._input = input
@@ -340,7 +349,11 @@ class CQ:
             builder.with_scenarios(scenarios)
         if render is not None:
             builder._render = dict(render)
-        builder._config().validate(terminal="legacy" if data is None and equation is None and circuit is None and input is None else None)
+        builder._config().validate(
+            terminal="legacy"
+            if data is None and equation is None and circuit is None and structural_navigation is None and input is None
+            else None
+        )
         return builder
 
     @staticmethod
@@ -462,6 +475,35 @@ class CQ:
     @staticmethod
     def walk(graph: Any, steps: int = 1, **kwargs: Any) -> Any:
         return CQ.primitive("coined_quantum_walk").build(graph, steps=steps, **kwargs)
+
+    @staticmethod
+    def navigation_v2(
+        heap: Any,
+        *,
+        operation: str,
+        pointer: Any = None,
+        selector: Any = None,
+        predicate: str | None = None,
+        lowering: str = "explicit_exact",
+        exactness: str = "exact",
+        access_distribution: dict[str, float] | None = None,
+        spectral_limit: int | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        from quantum_cq._navigation.structural import build_navigation_v2
+
+        return build_navigation_v2(
+            heap,
+            operation=operation,
+            pointer=pointer,
+            selector=selector,
+            predicate=predicate,
+            lowering=lowering,
+            exactness=exactness,
+            access_distribution=access_distribution,
+            spectral_limit=spectral_limit,
+            metadata=metadata,
+        )
 
     @staticmethod
     def deutsch(case: int = 1, **kwargs: Any) -> Any:
@@ -947,6 +989,10 @@ class CQ:
 
     @staticmethod
     def compile(circuit_like: Any, engine: str = "qiskit", **options: Any) -> Any:
+        from quantum_cq._navigation.structural import StructuralNavigationResult
+
+        if isinstance(circuit_like, StructuralNavigationResult):
+            return CQ.pipeline(structural_navigation=circuit_like).compile(engine=engine, **options).compiled_artifact
         from quantum_cq._engines.service import default_engine_service
 
         return default_engine_service().compile(circuit_like, engine=engine, **options)
@@ -959,6 +1005,14 @@ class CQ:
         shots: int = 1024,
         **options: Any,
     ) -> Any:
+        from quantum_cq._navigation.structural import StructuralNavigationResult
+
+        if isinstance(circuit_like, StructuralNavigationResult):
+            return CQ.pipeline(structural_navigation=circuit_like).run_engine(
+                engine=engine,
+                shots=shots,
+                **options,
+            ).engine_result
         from quantum_cq._engines.service import default_engine_service
 
         return default_engine_service().run(circuit_like, engine=engine, shots=shots, **options)

@@ -296,6 +296,23 @@ def default_navigation_descriptors() -> tuple[ComponentDescriptor, ...]:
             access_path="CQ.graph_nav(graph)",
             requirements=("x", "cx", "mcx"),
         ),
+        _descriptor(
+            "structural_navigation_v2",
+            "navigation",
+            family="navigation",
+            role="structural_navigation",
+            access_path="CQ.navigation_v2(heap, operation=...)",
+            requirements=("x", "cx", "mcx"),
+            navigation_version="v2",
+            exactness="exact",
+            supported_structures=("typed_finite_heap",),
+            lowering_strategies=("explicit_exact", "sparse_exact", "oracle_model"),
+            limitations=(
+                "finite exact domain only",
+                "no dynamic allocation",
+                "no approximate structural encoding",
+            ),
+        ),
     )
 
 

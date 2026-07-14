@@ -37,6 +37,11 @@ KNOWN_STAGES = {
     "encoding",
     "input_adapt",
     "mqt_lower",
+    "navigation_v2_validate",
+    "navigation_v2_canonicalize",
+    "navigation_v2_plan",
+    "navigation_v2_lower",
+    "navigation_v2_verify",
     "placement",
     "routing",
     "scheduling",
@@ -49,6 +54,11 @@ STAGE_ORDER = (
     "encoding",
     "input_adapt",
     "mqt_lower",
+    "navigation_v2_validate",
+    "navigation_v2_canonicalize",
+    "navigation_v2_plan",
+    "navigation_v2_lower",
+    "navigation_v2_verify",
     "placement",
     "routing",
     "scheduling",
@@ -61,6 +71,7 @@ KNOWN_PIPELINE_OPTIONS = {
     "metadata",
     "parameters",
     "symbols",
+    "structural_navigation",
     "engine",
     "target",
     "snapshot",
@@ -415,6 +426,7 @@ class PipelineExecutionConfig:
     data: Any = None
     equation: str | None = None
     circuit: Any = None
+    structural_navigation: Any = None
     input: Any = None
     input_adapter: PipelineInputAdapterProtocol | None = None
     encoding: str | None = None
@@ -464,6 +476,7 @@ class PipelineExecutionConfig:
             self.data is not None
             and self.equation is None
             and self.circuit is None
+            and self.structural_navigation is None
             and self.input is None
             and self.engine is None
             and self.target is None
@@ -476,6 +489,7 @@ class PipelineExecutionConfig:
             "data": self.data,
             "equation": self.equation,
             "circuit": self.circuit,
+            "structural_navigation": self.structural_navigation,
             "input": self.input,
         }
         return {key: value for key, value in candidates.items() if value is not None}
@@ -599,6 +613,7 @@ class PipelineCore:
             "data",
             "equation",
             "circuit",
+            "structural_navigation",
             "input",
             "input_adapter",
             "encoding",
@@ -676,6 +691,13 @@ class PipelineCore:
             "measurement_contract": state.features.get("measurement_contract"),
             "measurement_contracts_by_stage": state.features.get("measurement_contracts_by_stage"),
             "input_adapter": state.features.get("input_adapter_descriptor"),
+            "structural_source": state.features.get("structural_source"),
+            "validated_structure": state.features.get("validated_structure"),
+            "canonical_structure": state.features.get("canonical_structure"),
+            "equivalence_class": state.features.get("equivalence_class"),
+            "navigation_plan": state.features.get("navigation_plan"),
+            "structural_operation": state.features.get("structural_operation"),
+            "semantic_verification": state.features.get("semantic_verification"),
             "placement_plan": state.features.get("placement_plan"),
             "routing_plan": state.features.get("routing_plan"),
             "schedule": state.features.get("schedule"),
@@ -805,6 +827,71 @@ class PipelineCore:
             return state.with_stage(
                 _stage("input_adapt", "completed", requires=("circuit",), provides=("logical_circuit",)),
                 snapshots=(snapshot,),
+            )
+        if kind == "structural_navigation":
+            from quantum_cq._navigation.structural import StructuralNavigationInputAdapter
+
+            adapter = StructuralNavigationInputAdapter()
+            if not adapter.supports(value):
+                raise TypeError("structural_navigation requer StructuralNavigationResult")
+            circuit = _normalize_circuit(adapter.adapt(value, config))
+            snapshot = _snapshot(state.scenario.scenario_id, "navigation_v2_lower", circuit, _format_for(circuit))
+            descriptor = adapter.descriptor()
+            state = (
+                state.with_feature("structural_source", value.source)
+                .with_feature("validated_structure", value.validated_structure)
+                .with_feature("canonical_structure", value.canonical_structure)
+                .with_feature("equivalence_class", value.equivalence_class)
+                .with_feature("navigation_plan", value.plan)
+                .with_feature("structural_operation", value.operation)
+                .with_feature("semantic_verification", value.verification)
+                .with_feature("logical_circuit", circuit)
+                .with_feature("before_transpile", snapshot)
+                .with_feature("input_adapter_descriptor", descriptor)
+            )
+            state = _with_measurement_contract(state, "navigation_v2_lower", circuit)
+            return (
+                state.with_stage(
+                    _stage(
+                        "navigation_v2_validate",
+                        "completed",
+                        requires=("structural_navigation",),
+                        provides=("validated_structure",),
+                    )
+                )
+                .with_stage(
+                    _stage(
+                        "navigation_v2_canonicalize",
+                        "completed",
+                        requires=("validated_structure",),
+                        provides=("canonical_structure", "equivalence_class"),
+                    )
+                )
+                .with_stage(
+                    _stage(
+                        "navigation_v2_plan",
+                        "completed",
+                        requires=("equivalence_class",),
+                        provides=("navigation_plan", "structural_operation"),
+                    )
+                )
+                .with_stage(
+                    _stage(
+                        "navigation_v2_lower",
+                        "completed",
+                        requires=("navigation_plan",),
+                        provides=("logical_circuit", "input_adapter_descriptor"),
+                    ),
+                    snapshots=(snapshot,),
+                )
+                .with_stage(
+                    _stage(
+                        "navigation_v2_verify",
+                        "completed",
+                        requires=("logical_circuit",),
+                        provides=("semantic_verification",),
+                    )
+                )
             )
         if kind == "input":
             adapter = config.input_adapter
@@ -1133,6 +1220,8 @@ def _input_stage_id(kind: str) -> str:
         return "mqt_lower"
     if kind == "data":
         return "encoding"
+    if kind == "structural_navigation":
+        return "navigation_v2_validate"
     return "input_adapt"
 
 
@@ -1150,6 +1239,13 @@ def _scenario_id(index: int, config: PipelineExecutionConfig) -> str:
 
 
 def _normalize_circuit(value: Any) -> Any:
+    try:
+        from quantum_cq._navigation.structural import StructuralNavigationResult
+
+        if isinstance(value, StructuralNavigationResult):
+            raise TypeError("StructuralNavigationResult requer input adapter structural_navigation explicito")
+    except ImportError:
+        pass
     if isinstance(value, LogicalCircuitBuilder):
         return value.build()
     if isinstance(value, CircuitIR):
