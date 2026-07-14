@@ -70,21 +70,23 @@ def create_unitary(
     )
 
 
-def unitary_payload(unitary: CustomUnitary | Sequence[Sequence[complex]], qubits: Sequence[int]) -> dict[str, Any]:
-    if isinstance(unitary, CustomUnitary):
-        if len(tuple(qubits)) != unitary.num_qubits:
-            raise UnitaryValidationError(
-                f"Unitary '{unitary.name}' requires {unitary.num_qubits} qubits, got {len(tuple(qubits))}"
-            )
-        return {
-            "unitary": unitary,
-            "matrix": unitary.matrix,
-            "name": unitary.name,
-            "target_order": tuple(qubits),
-            "metadata": unitary.metadata,
-        }
+def unitary_payload(
+    unitary: CustomUnitary | Sequence[Sequence[complex]],
+    qubits: Sequence[int],
+    *,
+    name: str | None = None,
+) -> dict[str, Any]:
+    qubits_tuple = tuple(qubits)
+    value = unitary if isinstance(unitary, CustomUnitary) else create_unitary(unitary, name=name)
+    if len(qubits_tuple) != value.num_qubits:
+        raise UnitaryValidationError(
+            f"Unitary '{value.name}' requires {value.num_qubits} qubits, got {len(qubits_tuple)}"
+        )
     return {
-        "matrix": tuple(tuple(complex(value) for value in row) for row in unitary),
-        "target_order": tuple(qubits),
-        "metadata": {},
+        "matrix": value.matrix,
+        "name": value.name,
+        "num_qubits": value.num_qubits,
+        "atol": value.atol,
+        "target_order": qubits_tuple,
+        "metadata": value.metadata,
     }

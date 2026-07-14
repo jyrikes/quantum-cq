@@ -155,10 +155,7 @@ class CircuitService:
             measurement_total=bool(measurements) and len(measured_qubits) == descriptor.n_qubits,
             measurement_partial=bool(measurements) and len(measured_qubits) < descriptor.n_qubits,
             measurement_mapped=mapped,
-            measurement_intermediate=any(
-                operation.kind == "measure"
-                for operation in descriptor.operation_descriptors[: -len(measurements) or None]
-            ),
+            measurement_intermediate=_has_intermediate_measurement(descriptor.operation_descriptors),
             reset="reset" in operations,
             arbitrary_unitary="unitary" in operations,
             metadata={"source_format": descriptor.circuit_format},
@@ -204,14 +201,50 @@ class CircuitService:
         )
 
     def _qiskit_descriptor(self, circuit: Any) -> CircuitDescriptor:
-        count_ops = dict(circuit.count_ops())
-        operations = tuple(str(name) for name, count in count_ops.items() for _ in range(int(count)))
+        operation_descriptors: list[CircuitOperationDescriptor] = []
+        measurements: list[tuple[int, int]] = []
+        parameters: list[str] = []
+        custom_unitaries: list[str] = []
+        for item in getattr(circuit, "data", ()):
+            operation = getattr(item, "operation", None)
+            qubits = getattr(item, "qubits", None)
+            clbits = getattr(item, "clbits", None)
+            if operation is None and isinstance(item, tuple) and len(item) >= 3:
+                operation, qubits, clbits = item[0], item[1], item[2]
+            if operation is None:
+                continue
+            kind = str(getattr(operation, "name", type(operation).__name__))
+            q_indices = tuple(int(circuit.find_bit(qubit).index) for qubit in (qubits or ()))
+            c_indices = tuple(int(circuit.find_bit(clbit).index) for clbit in (clbits or ()))
+            controls = _qiskit_controls(kind, q_indices, operation)
+            operation_descriptors.append(
+                CircuitOperationDescriptor(
+                    kind=kind,
+                    qubits=q_indices,
+                    clbits=c_indices,
+                    arity=len(q_indices),
+                    controls=controls,
+                    label=getattr(operation, "label", None),
+                    metadata={
+                        "params": tuple(str(param) for param in getattr(operation, "params", ())),
+                    },
+                )
+            )
+            parameters.extend(str(param) for param in getattr(operation, "params", ()))
+            if kind == "measure" and q_indices and c_indices:
+                measurements.append((q_indices[0], c_indices[0]))
+            if kind == "unitary":
+                custom_unitaries.append(str(getattr(operation, "label", None) or "unitary"))
         return CircuitDescriptor(
             name=getattr(circuit, "name", "qiskit_circuit"),
             circuit_format="qiskit",
             n_qubits=int(circuit.num_qubits),
             n_clbits=int(circuit.num_clbits),
-            operations=operations,
+            operations=tuple(operation.kind for operation in operation_descriptors),
+            operation_descriptors=tuple(operation_descriptors),
+            measurements=tuple(measurements),
+            parameters=tuple(parameters),
+            custom_unitaries=tuple(custom_unitaries),
             logical_depth=int(circuit.depth() or 0),
             metadata={"native": "qiskit"},
             origin="qiskit",
@@ -244,3 +277,24 @@ def _iter_operations(ir: CircuitIR):
     for layer in ir.layers:
         yield from layer.operations
     yield from ir.outputs
+
+
+def _has_intermediate_measurement(operations: tuple[CircuitOperationDescriptor, ...]) -> bool:
+    for index, operation in enumerate(operations):
+        if operation.kind != "measure":
+            continue
+        later = operations[index + 1 :]
+        if any(item.kind not in {"measure", "barrier", "separator"} for item in later):
+            return True
+    return False
+
+
+def _qiskit_controls(kind: str, qubits: tuple[int, ...], operation: Any) -> tuple[int, ...]:
+    if kind in {"cx", "cz", "cp"} and len(qubits) >= 2:
+        return (qubits[0],)
+    if kind == "ccx" and len(qubits) >= 3:
+        return qubits[:2]
+    count = int(getattr(operation, "num_ctrl_qubits", 0) or 0)
+    if count:
+        return qubits[:count]
+    return ()

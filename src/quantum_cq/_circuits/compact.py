@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
@@ -309,14 +310,31 @@ class LogicalCircuitBuilder:
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        self._num_qubits = num_qubits
-        self._num_clbits = num_clbits
+        if int(num_qubits) < 0:
+            raise CircuitValidationError("A quantidade de qubits nao pode ser negativa")
+        if int(num_clbits) < 0:
+            raise CircuitValidationError("A quantidade de clbits nao pode ser negativa")
+        self._num_qubits = int(num_qubits)
+        self._num_clbits = int(num_clbits)
         self._name = name or "logical_circuit"
         self._metadata = dict(metadata or {})
         self._layers: list[Layer] = []
+        self._outputs: list[Operation] = []
 
     def x(self, qubit: int) -> None:
         self._append(Operation("x", qubits=(qubit,)))
+
+    def y(self, qubit: int) -> None:
+        self._append(Operation("y", qubits=(qubit,)))
+
+    def z(self, qubit: int) -> None:
+        self._append(Operation("z", qubits=(qubit,)))
+
+    def s(self, qubit: int) -> None:
+        self._append(Operation("s", qubits=(qubit,)))
+
+    def t(self, qubit: int) -> None:
+        self._append(Operation("t", qubits=(qubit,)))
 
     def h(self, qubit: int) -> None:
         self._append(Operation("h", qubits=(qubit,)))
@@ -370,16 +388,28 @@ class LogicalCircuitBuilder:
             )
         )
 
+    def ccx(self, control_a: int, control_b: int, target: int) -> None:
+        self._append(
+            Operation(
+                "ccx",
+                qubits=(control_a, control_b, target),
+                params={"controls": (control_a, control_b), "target": target},
+            )
+        )
+
     def swap(self, left: int, right: int) -> None:
         self._append(Operation("swap", qubits=(left, right), params={"left": left, "right": right}))
 
     def unitary(self, matrix: Any, qubits: Sequence[int], label: str | None = None) -> None:
         qubits_tuple = tuple(qubits)
-        payload = unitary_payload(matrix, qubits_tuple)
+        self._validate_unique_qubits(qubits_tuple, role="unitario")
+        payload = unitary_payload(matrix, qubits_tuple, name=label)
         operation_label = label or (matrix.name if isinstance(matrix, CustomUnitary) else None)
         self._append(Operation("unitary", qubits=qubits_tuple, params=payload, label=operation_label))
 
     def measure(self, qubit: int, clbit: int) -> None:
+        self._validate_qubit_index(qubit)
+        self._validate_clbit_index(clbit, allow_expand=True)
         self._num_clbits = max(self._num_clbits, clbit + 1)
         self._append(Operation("measure", qubits=(qubit,), clbits=(clbit,)))
 
@@ -387,11 +417,16 @@ class LogicalCircuitBuilder:
         self._append(Operation("barrier"))
 
     def initialize(self, amplitudes: Sequence[complex], qubits: Sequence[int]) -> None:
+        qubits_tuple = tuple(qubits)
+        amplitudes_tuple = tuple(amplitudes)
+        self._validate_unique_qubits(qubits_tuple, role="initialize")
+        if len(amplitudes_tuple) != 2 ** len(qubits_tuple):
+            raise CircuitValidationError("Initialize requer 2**n amplitudes para os qubits informados")
         self._append(
             Operation(
                 "initialize",
-                qubits=tuple(qubits),
-                params={"amplitudes": tuple(amplitudes)},
+                qubits=qubits_tuple,
+                params={"amplitudes": amplitudes_tuple},
             )
         )
 
@@ -428,10 +463,10 @@ class LogicalCircuitBuilder:
                 remapped.add(_remap_operation(operation, qmap, cmap, origin))
             self._layers.append(remapped)
         if sub_ir.outputs:
-            output_layer = Layer()
             for operation in sub_ir.outputs:
-                output_layer.add(_remap_operation(operation, qmap, cmap, origin))
-            self._layers.append(output_layer)
+                remapped = _remap_operation(operation, qmap, cmap, origin)
+                self._validate_operation(remapped, allow_clbit_expand=False)
+                self._outputs.append(remapped)
         self._metadata.setdefault("subcircuits", []).append(origin)
 
     def build(self) -> CircuitIR:
@@ -441,14 +476,81 @@ class LogicalCircuitBuilder:
             n_clbits=self._num_clbits,
             inputs=[],
             layers=list(self._layers),
-            outputs=[],
+            outputs=list(self._outputs),
             metadata=dict(self._metadata),
         )
 
     def _append(self, operation: Operation) -> None:
+        self._validate_operation(operation)
         layer = Layer()
         layer.add(operation)
         self._layers.append(layer)
+
+    def _validate_operation(self, operation: Operation, *, allow_clbit_expand: bool = False) -> None:
+        for qubit in operation.qubits:
+            self._validate_qubit_index(qubit)
+        for clbit in operation.clbits:
+            self._validate_clbit_index(clbit, allow_expand=allow_clbit_expand)
+
+        if operation.kind in {"x", "y", "z", "s", "t", "h", "rx", "ry", "rz", "p", "measure"}:
+            if len(operation.qubits) != 1:
+                raise CircuitValidationError(f"Operacao {operation.kind} requer exatamente 1 qubit")
+        elif operation.kind in {"cx", "cz", "cp"}:
+            self._validate_pair(operation.qubits, operation.kind)
+        elif operation.kind == "swap":
+            self._validate_pair(operation.qubits, "swap")
+        elif operation.kind == "ccx":
+            controls = tuple(operation.params.get("controls", operation.qubits[:2]))
+            target = operation.params.get("target", operation.qubits[-1] if operation.qubits else None)
+            self._validate_controls(controls, target)
+            if len(operation.qubits) != 3:
+                raise CircuitValidationError("CCX requer dois controles e um alvo")
+        elif operation.kind == "mcx":
+            self._validate_controls(operation.params.get("controls", ()), operation.params.get("target"))
+        elif operation.kind == "unitary":
+            self._validate_unique_qubits(operation.qubits, role="unitario")
+        elif operation.kind == "initialize":
+            self._validate_unique_qubits(operation.qubits, role="initialize")
+        elif operation.kind in {"barrier", "block", "separator", "observe"}:
+            return
+
+    def _validate_pair(self, qubits: tuple[int, ...], operation: str) -> None:
+        if len(qubits) != 2:
+            raise CircuitValidationError(f"Operacao {operation} requer exatamente 2 qubits")
+        if qubits[0] == qubits[1]:
+            raise CircuitValidationError(f"Operacao {operation} requer qubits distintos")
+
+    def _validate_controls(self, controls: Iterable[int], target: Any) -> None:
+        controls_tuple = tuple(controls)
+        if target is None:
+            raise CircuitValidationError("Operacao controlada requer alvo")
+        self._validate_qubit_index(int(target))
+        self._validate_unique_qubits(controls_tuple, role="controles")
+        if int(target) in controls_tuple:
+            raise CircuitValidationError("Alvo nao pode aparecer entre os controles")
+
+    def _validate_unique_qubits(self, qubits: Sequence[int], *, role: str) -> None:
+        qubits_tuple = tuple(qubits)
+        if len(set(qubits_tuple)) != len(qubits_tuple):
+            raise CircuitValidationError(f"{role} possui qubits duplicados")
+        for qubit in qubits_tuple:
+            self._validate_qubit_index(qubit)
+
+    def _validate_qubit_index(self, qubit: int) -> None:
+        if not isinstance(qubit, int):
+            raise CircuitValidationError(f"Indice de qubit deve ser inteiro: {qubit!r}")
+        if qubit < 0:
+            raise CircuitValidationError("Indice de qubit nao pode ser negativo")
+        if qubit >= self._num_qubits:
+            raise CircuitValidationError("Indice de qubit fora do intervalo")
+
+    def _validate_clbit_index(self, clbit: int, *, allow_expand: bool) -> None:
+        if not isinstance(clbit, int):
+            raise CircuitValidationError(f"Indice de clbit deve ser inteiro: {clbit!r}")
+        if clbit < 0:
+            raise CircuitValidationError("Indice de clbit nao pode ser negativo")
+        if not allow_expand and clbit >= self._num_clbits:
+            raise CircuitValidationError("Indice de clbit fora do intervalo")
 
 
 class LogicalCircuitFactory:
@@ -792,7 +894,7 @@ class QiskitExporter:
                 self._apply(qc, op)
 
         for op in ir.outputs:
-            qc.measure(op.qubits[0], op.clbits[0])
+            self._apply(qc, op)
 
         return qc
 
