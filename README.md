@@ -41,7 +41,11 @@ Optional extras:
 pip install "quantum-cq[aer]"       # local simulation with qiskit-aer
 pip install "quantum-cq[ibm]"       # IBM Quantum Runtime integration
 pip install "quantum-cq[notebook]"  # pandas, matplotlib, pylatexenc, IPython, widgets
-pip install "quantum-cq[all]"       # all optional runtime and notebook extras
+pip install "quantum-cq[pennylane]" # optional PennyLane engine
+pip install "quantum-cq[cirq]"      # optional Cirq engine
+pip install "quantum-cq[braket]"    # optional Amazon Braket local engine
+pip install "quantum-cq[cudaq]"     # optional CUDA-Q in supported environments
+pip install "quantum-cq[all]"       # Aer, IBM Runtime and notebook extras
 ```
 
 Dependency groups:
@@ -52,7 +56,13 @@ Dependency groups:
 | `quantum-cq[aer]` | `qiskit-aer` | Run local ideal/noisy simulation paths that need Aer. |
 | `quantum-cq[ibm]` | `qiskit-ibm-runtime` | Submit jobs through IBM Quantum Runtime. |
 | `quantum-cq[notebook]` | `pandas`, `matplotlib`, `pylatexenc`, `ipython`, `ipywidgets` | Rich display in notebooks and dataframes. |
-| `quantum-cq[all]` | all optional extras | Development notebooks or full local experimentation. |
+| `quantum-cq[pennylane]` | `pennylane` | Native PennyLane emission and local execution. |
+| `quantum-cq[cirq]` | `cirq` | Native Cirq emission and local execution. |
+| `quantum-cq[braket]` | `amazon-braket-sdk` | Amazon Braket local simulator integration. |
+| `quantum-cq[cudaq]` | `cudaq` | CUDA-Q experiments in supported environments. |
+| `quantum-cq[all]` | Aer, IBM Runtime and notebook extras | Existing Qiskit runtime/notebook bundle; not all optional engines. |
+
+Qiskit is required in `0.1.x`; there is no `quantum-cq[qiskit]` extra.
 
 More detail:
 https://github.com/jyrikes/quantum-cq/blob/main/docs/installation.md
@@ -337,6 +347,22 @@ qiskit_circuit = CQ.to_qiskit(navigation)
 metrics = CQ.metrics(navigation)
 
 pipeline_result = CQ.run(data=[0.1, 0.2], encoder="angle", mode="ideal", shots=64)
+```
+
+The legacy exporter list remains Qiskit-only:
+
+```python
+assert CQ.available_exporters() == ["qiskit"]
+```
+
+The multi-engine layer is exposed separately:
+
+```python
+print(CQ.engines())
+print(CQ.engine_capabilities("qiskit"))
+
+compiled = CQ.compile(qiskit_circuit, engine="qiskit")
+result = CQ.run_engine(compiled, engine="qiskit", shots=128)
 ```
 
 More examples:

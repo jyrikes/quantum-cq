@@ -28,6 +28,10 @@ Qiskit and collect structural metrics.
 ```bash
 pip install "quantum-cq[aer]"
 pip install "quantum-cq[ibm]"
+pip install "quantum-cq[pennylane]"
+pip install "quantum-cq[cirq]"
+pip install "quantum-cq[braket]"
+pip install "quantum-cq[cudaq]"
 pip install "quantum-cq[notebook]"
 pip install "quantum-cq[all]"
 ```
@@ -36,8 +40,19 @@ pip install "quantum-cq[all]"
 | --- | --- | --- |
 | `aer` | `qiskit-aer` | Local simulation paths that need Aer. |
 | `ibm` | `qiskit-ibm-runtime` | IBM Quantum Runtime execution. |
+| `pennylane` | `pennylane` | Optional PennyLane emission and local execution. |
+| `cirq` | `cirq` | Optional Cirq emission and local execution. |
+| `braket` | `amazon-braket-sdk` | Optional Amazon Braket local simulator integration. |
+| `cudaq` | `cudaq` | Optional CUDA-Q experiments in supported environments. |
 | `notebook` | `pandas`, `matplotlib`, `pylatexenc`, `ipython`, `ipywidgets` | Notebook display, figures and dataframes. |
-| `all` | all optional extras | Full local experimentation. |
+| `all` | Aer, IBM Runtime and notebook extras | Existing Qiskit runtime/notebook bundle; it does not install all optional engines. |
+
+Qiskit is a required dependency in the `0.1.x` series. There is no
+`quantum-cq[qiskit]` extra.
+
+PennyLane, Cirq and Braket should be installed only when those engines are
+needed. CUDA-Q support depends on the operating system and Python environment;
+on native Windows, use WSL or another CUDA-Q-supported environment.
 
 ## Notebook Display
 
