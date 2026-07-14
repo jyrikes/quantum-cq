@@ -88,6 +88,39 @@ class PipelineInputAdapterProtocol(Protocol):
 
 
 @dataclass(frozen=True)
+class PipelineInputAdapterDescriptor:
+    adapter_id: str
+    input_type: str
+    features: tuple[str, ...]
+    output_format: str
+    navigation_version: str | None = None
+    engine_origin: str | None = None
+    neutralizable: bool = True
+    exactness: str | None = None
+    limitations: tuple[str, ...] = ()
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "features", tuple(self.features))
+        object.__setattr__(self, "limitations", tuple(self.limitations))
+        object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "adapter_id": self.adapter_id,
+            "input_type": self.input_type,
+            "features": list(self.features),
+            "output_format": self.output_format,
+            "navigation_version": self.navigation_version,
+            "engine_origin": self.engine_origin,
+            "neutralizable": self.neutralizable,
+            "exactness": self.exactness,
+            "limitations": list(self.limitations),
+            "provenance": _json_safe(dict(self.provenance)),
+        }
+
+
+@dataclass(frozen=True)
 class PipelineDiagnostic:
     level: str
     message: str
@@ -459,6 +492,8 @@ class PipelineExecutionConfig:
         unknown_stages = set(self.stages) - KNOWN_STAGES
         if unknown_stages:
             raise ValueError(f"stage desconhecido: {sorted(unknown_stages)}")
+        if self.stop_after is not None and self.stop_after not in KNOWN_STAGES:
+            raise ValueError(f"stop_after desconhecido: {self.stop_after}")
         if self.stop_after is not None and self.stages and self.stop_after not in self.stages:
             raise ValueError("stop_after deve pertencer aos stages habilitados")
         scenario_ids = [
@@ -639,6 +674,8 @@ class PipelineCore:
             "after_transpile": state.features.get("after_transpile"),
             "transpilation_record": state.features.get("transpilation_record"),
             "measurement_contract": state.features.get("measurement_contract"),
+            "measurement_contracts_by_stage": state.features.get("measurement_contracts_by_stage"),
+            "input_adapter": state.features.get("input_adapter_descriptor"),
             "placement_plan": state.features.get("placement_plan"),
             "routing_plan": state.features.get("routing_plan"),
             "schedule": state.features.get("schedule"),
@@ -669,7 +706,12 @@ class PipelineCore:
                 )
             artifacts["compiled_artifact"] = artifact
             artifacts["measurement_contract"] = artifact.measurement_contract
-            state = state.with_feature("compiled_artifact", artifact).with_stage(
+            state = _store_measurement_contract(
+                state.with_feature("compiled_artifact", artifact)
+                .with_feature("measurement_contract", artifact.measurement_contract),
+                "compilation",
+                artifact.measurement_contract,
+            ).with_stage(
                 _stage("compile", "completed", requires=("logical_circuit",), provides=("compiled_artifact",))
             )
         elif terminal in {"compile", "run_engine"}:
@@ -690,16 +732,24 @@ class PipelineCore:
                 **run_options,
             )
             artifacts["engine_result"] = result
-            state = state.with_feature("engine_result", result).with_stage(
+            state = _store_measurement_contract(
+                state.with_feature("engine_result", result)
+                .with_feature("measurement_contract", result.measurement_contract),
+                "execution",
+                result.measurement_contract,
+            )
+            state = _store_measurement_contract(state, "decoding", result.measurement_contract).with_stage(
                 _stage("execute", "completed", requires=("compiled_artifact",), provides=("engine_result",))
             )
         elif terminal == "run_engine":
             state = self._mark_skipped(state, "execute") if self._stop_reached(state, config) else state.with_stage(_stage("execute", "not_requested"))
 
+        artifacts["measurement_contract"] = state.features.get("measurement_contract")
+        artifacts["measurement_contracts_by_stage"] = state.features.get("measurement_contracts_by_stage")
         graph = TransformationGraph(scenario.scenario_id, state.transformation_events)
         return ScenarioResult(
             scenario_id=scenario.scenario_id,
-            status="completed",
+            status=_scenario_status(terminal, state),
             stage_results=state.stage_results,
             snapshots=state.snapshots,
             transformation_graph=graph,
@@ -739,8 +789,8 @@ class PipelineCore:
                 state.with_feature("ast", ast)
                 .with_feature("semantic_ir", semantic)
                 .with_feature("logical_circuit", circuit)
-                .with_feature("measurement_contract", None)
             )
+            state = _with_measurement_contract(state, "mqt_lower", circuit)
             return state.with_stage(
                 _stage("mqt_lower", "completed", requires=("equation",), provides=("ast", "semantic_ir", "logical_circuit")),
                 snapshots=(snapshot,),
@@ -750,10 +800,11 @@ class PipelineCore:
                 raise ValueError("Circuito nativo restrito a engine de origem; conversao cross-engine rejeitada")
             circuit = _normalize_circuit(value)
             snapshot = _snapshot(state.scenario.scenario_id, "input_adapt", circuit, _format_for(circuit))
-            return (
-                state.with_feature("logical_circuit", circuit)
-                .with_feature("before_transpile", snapshot)
-                .with_stage(_stage("input_adapt", "completed", requires=("circuit",), provides=("logical_circuit",)), snapshots=(snapshot,))
+            state = state.with_feature("logical_circuit", circuit).with_feature("before_transpile", snapshot)
+            state = _with_measurement_contract(state, "input_adapt", circuit)
+            return state.with_stage(
+                _stage("input_adapt", "completed", requires=("circuit",), provides=("logical_circuit",)),
+                snapshots=(snapshot,),
             )
         if kind == "input":
             adapter = config.input_adapter
@@ -762,20 +813,30 @@ class PipelineCore:
             adapted = adapter.adapt(value, config)
             circuit = _normalize_circuit(adapted)
             snapshot = _snapshot(state.scenario.scenario_id, "input_adapt", circuit, _format_for(circuit))
-            return (
+            descriptor = _adapter_descriptor(adapter, value, circuit)
+            state = (
                 state.with_feature("logical_circuit", circuit)
                 .with_feature("before_transpile", snapshot)
-                .with_stage(_stage("input_adapt", "completed", requires=("input",), provides=("logical_circuit",)), snapshots=(snapshot,))
+                .with_feature("input_adapter_descriptor", descriptor)
+            )
+            state = _with_measurement_contract(state, "input_adapt", circuit)
+            return state.with_stage(
+                _stage("input_adapt", "completed", requires=("input",), provides=("logical_circuit", "input_adapter_descriptor")),
+                snapshots=(snapshot,),
             )
         if kind == "data":
             encoded = _encode_data(value, config)
             circuit = _normalize_circuit(encoded)
             snapshot = _snapshot(state.scenario.scenario_id, "encoding", circuit, _format_for(circuit))
-            return (
+            state = (
                 state.with_feature("encoded", encoded)
                 .with_feature("logical_circuit", circuit)
                 .with_feature("before_transpile", snapshot)
-                .with_stage(_stage("encoding", "completed", requires=("data",), provides=("encoded", "logical_circuit")), snapshots=(snapshot,))
+            )
+            state = _with_measurement_contract(state, "encoding", circuit)
+            return state.with_stage(
+                _stage("encoding", "completed", requires=("data",), provides=("encoded", "logical_circuit")),
+                snapshots=(snapshot,),
             )
         raise ValueError(f"Entrada primaria nao suportada: {kind}")
 
@@ -789,6 +850,7 @@ class PipelineCore:
         from quantum_cq._planning import place
 
         plan = place(state.features["logical_circuit"], target=config.target, strategy=strategy)
+        state = _copy_measurement_contract(state, "placement")
         snapshot = _snapshot(
             state.scenario.scenario_id,
             "placed",
@@ -817,6 +879,7 @@ class PipelineCore:
             strategy=strategy,
         )
         routed_circuit = route_plan.routed_circuit or state.features["logical_circuit"]
+        state = _with_measurement_contract(state, "routing", routed_circuit)
         snapshot = _snapshot(
             state.scenario.scenario_id,
             "routed",
@@ -866,6 +929,7 @@ class PipelineCore:
             target=config.target,
             strategy=strategy,
         )
+        state = _copy_measurement_contract(state, "scheduling")
         status = "completed" if getattr(schedule_plan, "complete", False) else "insufficient_information"
         snapshot = _snapshot(
             state.scenario.scenario_id,
@@ -888,6 +952,7 @@ class PipelineCore:
         circuit = state.features.get("routed_circuit") or state.features["logical_circuit"]
         bundle = get_engine_bundle(engine)
         contract = measurement_contract_from_ir(circuit) if isinstance(circuit, CircuitIR) else None
+        state = _store_measurement_contract(state, "emission", contract)
         emitted = bundle.emitter.emit(circuit, measurement_contract=contract)
         if bundle.transpiler is None:
             transpilation = None
@@ -921,15 +986,27 @@ class PipelineCore:
             engine=engine,
             target=config.target,
         )
-        event = TransformationEvent(
-            event_id=f"{state.scenario.scenario_id}:native_transpile:identity",
-            scenario_id=state.scenario.scenario_id,
-            stage_id="native_transpile",
-            input_snapshot_ids=(before_native.snapshot_id,),
-            output_snapshot_ids=(after.snapshot_id,),
-            transformation_type="native_transpile",
-            changes={"status": status, **native_metadata},
-            provenance={"engine": engine, "analysis_snapshot": None if before is None else before.snapshot_id},
+        structural_change = native_metadata.get("native_transpilation") not in {
+            None,
+            "identity",
+            "not_applicable",
+        }
+        event = None
+        if structural_change:
+            event = TransformationEvent(
+                event_id=f"{state.scenario.scenario_id}:native_transpile:{after.snapshot_id}",
+                scenario_id=state.scenario.scenario_id,
+                stage_id="native_transpile",
+                input_snapshot_ids=(before_native.snapshot_id,),
+                output_snapshot_ids=(after.snapshot_id,),
+                transformation_type="native_transpile",
+                changes={"status": status, **native_metadata},
+                provenance={"engine": engine, "analysis_snapshot": None if before is None else before.snapshot_id},
+            )
+        state = _store_measurement_contract(
+            state,
+            "native_transpile",
+            None if transpilation is None else transpilation.measurement_contract,
         )
         record = {
             "neutral_stages": [
@@ -942,7 +1019,7 @@ class PipelineCore:
             "target_usage": "analysis" if config.target is not None else "none",
             "options": {"policy": config.native_transpilation_policy},
             "snapshots": [snapshot.snapshot_id for snapshot in (before, before_native, after) if snapshot is not None],
-            "transformations": [event.event_id],
+            "transformations": [] if event is None else [event.event_id],
             "metrics": {} if transpilation is None else dict(transpilation.metrics),
             "status": status,
         }
@@ -953,7 +1030,7 @@ class PipelineCore:
             .with_stage(
                 _stage("native_transpile", record["status"], requires=("logical_circuit",), provides=("after_transpile",)),
                 snapshots=(before_native, after),
-                events=(event,),
+                events=() if event is None else (event,),
             )
         )
 
@@ -975,6 +1052,73 @@ def _encode_data(value: Any, config: PipelineExecutionConfig) -> EncodedCircuit:
         return encoder.encode(data)
     selector = config.selector or EncodingSelector(registry)
     return selector.select(data).encode(data)
+
+
+def _scenario_status(terminal: str, state: PipelineState) -> str:
+    statuses = {stage.status for stage in state.stage_results}
+    if "failed" in statuses:
+        return "failed"
+    if "incompatible" in statuses:
+        return "incompatible"
+    if "insufficient_information" in statuses:
+        return "insufficient_information"
+    expected = {
+        "transpile": "after_transpile",
+        "compile": "compiled_artifact",
+        "run_engine": "engine_result",
+    }.get(terminal)
+    if expected is not None and expected not in state.features:
+        if "skipped_by_policy" in statuses:
+            return "completed"
+        return "incomplete"
+    return "completed"
+
+
+def _adapter_descriptor(adapter: Any, value: Any, adapted: Any) -> PipelineInputAdapterDescriptor:
+    descriptor = getattr(adapter, "descriptor", None)
+    if callable(descriptor):
+        raw = descriptor()
+        if isinstance(raw, PipelineInputAdapterDescriptor):
+            return raw
+        if isinstance(raw, Mapping):
+            return PipelineInputAdapterDescriptor(**dict(raw))
+    return PipelineInputAdapterDescriptor(
+        adapter_id=str(getattr(adapter, "adapter_id", type(adapter).__name__)),
+        input_type=type(value).__name__,
+        features=("logical_circuit",),
+        output_format=_format_for(adapted),
+        navigation_version=getattr(adapter, "navigation_version", None),
+        engine_origin=getattr(adapter, "engine_origin", None),
+        neutralizable=bool(getattr(adapter, "neutralizable", True)),
+        exactness=getattr(adapter, "exactness", None),
+        limitations=tuple(getattr(adapter, "limitations", ())),
+        provenance={"source": "inferred_from_explicit_adapter"},
+    )
+
+
+def _with_measurement_contract(
+    state: PipelineState,
+    stage_id: str,
+    circuit: Any,
+) -> PipelineState:
+    from quantum_cq._engines.measurement import measurement_contract_from_ir
+
+    contract = measurement_contract_from_ir(circuit) if isinstance(circuit, CircuitIR) else None
+    return _store_measurement_contract(state.with_feature("measurement_contract", contract), stage_id, contract)
+
+
+def _copy_measurement_contract(state: PipelineState, stage_id: str) -> PipelineState:
+    return _store_measurement_contract(state, stage_id, state.features.get("measurement_contract"))
+
+
+def _store_measurement_contract(
+    state: PipelineState,
+    stage_id: str,
+    contract: Any,
+) -> PipelineState:
+    contracts = dict(state.features.get("measurement_contracts_by_stage") or {})
+    contracts[stage_id] = contract
+    return state.with_feature("measurement_contracts_by_stage", MappingProxyType(contracts))
 
 
 def _primary_input(config: PipelineExecutionConfig) -> tuple[str, Any]:
@@ -1188,6 +1332,8 @@ def _json_safe(value: Any) -> Any:
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
+    if hasattr(value, "to_metadata") and callable(value.to_metadata):
+        return _json_safe(value.to_metadata())
     if hasattr(value, "to_dict") and callable(value.to_dict):
         return _json_safe(value.to_dict())
     return {
