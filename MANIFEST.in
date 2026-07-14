@@ -4,7 +4,10 @@ include pyproject.toml
 include tests/conftest.py
 recursive-include tests *.py
 recursive-include docs *.md
-include notebooks/*.ipynb
+include notebooks/quantum_cq_full_pipeline_navigation.ipynb
+include notebooks/quantum_cq_getting_started.ipynb
+include notebooks/quantum_cq_ibm_real_smoke.ipynb
+include notebooks/quantum_cq_simple_api_lab.ipynb
 prune .pytest_cache
 prune .vscode
 prune logs
