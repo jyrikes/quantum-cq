@@ -3,6 +3,31 @@
 Run 1 validates optional engines outside the primary Conda baseline
 environment.
 
+Run 2 repeats this validation after the engine contracts refactor. The Run 2
+venvs are outside the repository at:
+
+```text
+C:\Users\Yngrid Kalinne\.codex\venvs
+```
+
+Run 2 commands:
+
+```bash
+python -m pip install -e ".[dev,<engine>]"
+python -m pytest -q tests/test_multi_engine_core.py tests/adapters/test_<engine>_engine.py tests/test_run2_engine_contracts.py tests/test_run2_component_catalog.py
+```
+
+Run 2 results:
+
+| Engine | Key engine version | Qiskit | NumPy | Result |
+| --- | --- | --- | --- | --- |
+| PennyLane | 0.45.1 | 2.5.0 | 2.5.1 | 20 passed, 3 skipped, 1 PennyLane shots deprecation warning |
+| Cirq | 1.7.0 | 2.5.0 | 2.5.1 | 21 passed, 2 skipped |
+| Amazon Braket SDK | 1.123.0.post0 | 2.5.0 | 2.4.6 | 21 passed, 2 skipped |
+
+Braket validation remains local-simulator only. CUDA-Q remains unsupported on
+native Windows unless validated in WSL or another compatible environment.
+
 The venvs are created outside the repository at:
 
 ```text
