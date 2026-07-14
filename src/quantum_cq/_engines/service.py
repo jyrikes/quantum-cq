@@ -219,8 +219,16 @@ class EngineService:
             )
 
         self._reject_unimplemented_physical_execution(artifact)
+        self._reject_unbound_target_execution(artifact)
         execution = bundle.executor.execute(artifact, shots=shots, **options)
-        return bundle.decoder.decode(execution, artifact, shots=shots, **options)
+        result = bundle.decoder.decode(execution, artifact, shots=shots, **options)
+        return replace(
+            result,
+            context=artifact.context,
+            execution_backend=execution.backend,
+            execution_device=execution.device,
+            target_usage="none" if artifact.context is None else artifact.context.target_usage,
+        )
 
     def compatibility(
         self,
@@ -326,15 +334,23 @@ class EngineService:
         shots: int | None,
         options: dict[str, Any],
     ) -> Any:
-        if context is not None:
-            return context
-        if target is None:
-            return None
         hardware_service = self._hardware_service
-        if hardware_service is None:
+        if hardware_service is None and (target is not None or context is not None):
             from quantum_cq._hardware.service import default_hardware_service
 
             hardware_service = default_hardware_service()
+        if context is not None:
+            self._validate_supplied_context(
+                context,
+                engine=engine,
+                target=target,
+                measurement_policy=measurement_policy,
+                shots=shots,
+                hardware_service=hardware_service,
+            )
+            return context
+        if target is None:
+            return None
         return hardware_service.execution_context(
             engine=engine,
             target=target,
@@ -359,6 +375,15 @@ class EngineService:
         hints = hardware_service.compatibility_hints(
             context.target,
             required_qubits=circuit_requirements.min_qubits,
+            required_operations=circuit_requirements.operations,
+            max_arity=circuit_requirements.max_arity,
+            requires_measurement=(
+                circuit_requirements.measurement_total
+                or circuit_requirements.measurement_partial
+                or circuit_requirements.measurement_mapped
+            ),
+            requires_reset=circuit_requirements.reset,
+            requires_classical_control=circuit_requirements.classical_conditioning,
         )
         missing = report.missing
         status = report.status
@@ -367,6 +392,11 @@ class EngineService:
             missing = (*missing, "target_qubits")
             status = "incompatible"
             reason = "target has insufficient physical qubits"
+        for missing_item in hints.get("missing", ()):
+            if missing_item not in missing:
+                missing = (*missing, missing_item)
+                status = "incompatible"
+                reason = "target does not satisfy structural requirements"
         return replace(
             report,
             circuit_requirements=circuit_requirements,
@@ -376,6 +406,9 @@ class EngineService:
             placement_required=bool(hints.get("placement_required", False)),
             routing_required=bool(hints.get("routing_required", False)),
             scheduling_required=bool(hints.get("scheduling_required", False)),
+            placement_status=str(hints.get("placement_status", "not_analyzed")),
+            routing_status=str(hints.get("routing_status", "not_analyzed")),
+            scheduling_status=str(hints.get("scheduling_status", "not_analyzed")),
             missing=missing,
             status=status,
             reason=reason,
@@ -390,6 +423,41 @@ class EngineService:
             raise CapabilityMismatchError(
                 "Execucao em target fisico/remoto ainda nao foi implementada nesta run"
             )
+
+    def _reject_unbound_target_execution(self, artifact: CompiledArtifact) -> None:
+        context = artifact.context
+        target = getattr(context, "target", None)
+        if target is None:
+            return
+        if getattr(context, "execution_binding", "unbound") != "executor_bound":
+            raise CapabilityMismatchError(
+                "run_engine recebeu target apenas analisado, mas nenhum binding "
+                "executor-target foi implementado nesta run"
+            )
+
+    def _validate_supplied_context(
+        self,
+        context: Any,
+        *,
+        engine: str,
+        target: Any,
+        measurement_policy: str,
+        shots: int | None,
+        hardware_service: Any,
+    ) -> None:
+        if getattr(context, "engine", None) != engine:
+            raise CapabilityMismatchError("ExecutionContext.engine diverge da engine solicitada")
+        context_shots = getattr(context, "shots", None)
+        if context_shots is not None and shots is not None and int(context_shots) != int(shots):
+            raise CapabilityMismatchError("ExecutionContext.shots diverge dos shots solicitados")
+        context_policy = getattr(context, "measurement_policy", None)
+        if context_policy is not None and context_policy != measurement_policy:
+            raise CapabilityMismatchError("ExecutionContext.measurement_policy diverge da politica efetiva")
+        if target is not None:
+            resolved_target = hardware_service.resolve(target)
+            context_target = getattr(context, "target", None)
+            if context_target is None or not _same_target(context_target, resolved_target):
+                raise CapabilityMismatchError("target e ExecutionContext.target divergem")
 
 
 def _requirements_from_ir(
@@ -418,6 +486,19 @@ def _requirements_from_circuit_requirements(
     return tuple(
         ComponentRequirement(feature, category="circuit")
         for feature in requirements.features
+    )
+
+
+def _same_target(left: Any, right: Any) -> bool:
+    if left is right:
+        return True
+    left_descriptor = getattr(left, "descriptor", None)
+    right_descriptor = getattr(right, "descriptor", None)
+    return (
+        left_descriptor is not None
+        and right_descriptor is not None
+        and getattr(left_descriptor, "target_id", None) == getattr(right_descriptor, "target_id", None)
+        and getattr(left_descriptor, "provider", None) == getattr(right_descriptor, "provider", None)
     )
 
 

@@ -49,6 +49,12 @@ operations.
 `QuantumCircuit` is recognized only as a native Qiskit object. It is not
 converted back to `CircuitIR` for optional engines.
 
+The public builder validates structural invariants before operations enter the
+IR: register sizes must be non-negative, qubit/clbit indices must be valid,
+controlled operations must use distinct controls and targets, and custom
+unitaries must be applied to unique valid qubits. Invalid circuits are rejected
+at the logical boundary rather than being left for an SDK to fail later.
+
 ## Custom unitaries
 
 `CQ.unitary(...)` creates a `CustomUnitary` object. The object is SDK-free and
@@ -63,8 +69,11 @@ Validation checks:
 - unitarity within the configured tolerance.
 
 Custom unitaries are preserved as explicit `unitary` operations in `CircuitIR`.
-They are not decomposed or synthesized automatically. Engines without tested
-support report incompatibility through capabilities.
+Raw matrices passed through `builder.unitary(...)` use the same validation as
+`CQ.unitary(...)`; there is no bypass path. The operation payload keeps one
+neutral source of truth for the matrix and associated metadata. Unitaries are
+not decomposed or synthesized automatically. Engines without tested support
+report incompatibility through capabilities.
 
 ## Composition
 
@@ -123,9 +132,10 @@ connectivity when those values are not supplied.
 ## Targets and providers
 
 `CQ.manual_target(...)` creates a neutral target declared by the user. It
-requires explicit classification such as `physical`, `simulator_ideal`,
-`simulator_noisy`, `manual`, or `hypothetical`.
+requires explicit computational nature such as `physical`, `simulator_ideal`,
+`simulator_noisy`, `hypothetical`, or `unknown`.
 
+Manual data source is represented as provenance, not as the target nature.
 Manual physical targets are marked as user-declared and not provider-verified.
 Calibration is not considered current unless the user supplies a timestamped
 snapshot and provenance.
@@ -133,7 +143,14 @@ snapshot and provenance.
 The Qiskit provider adapter is an anti-corruption layer. It can convert a
 Qiskit object explicitly supplied by the caller into the neutral target model.
 It does not authenticate, list remote backends, open network connections,
-select a backend or start jobs.
+select a backend or start jobs. It classifies physical backends, simulators and
+structural Qiskit targets only when that information is available from the
+explicit object.
+
+`HardwareService.serialize(...)` emits JSON-compatible neutral data, and
+`deserialize(json.loads(json.dumps(payload)))` reconstructs the neutral target
+types, including topology, native instructions, `TargetDatum` values, timestamps
+and schema version. Unknown schema versions fail explicitly.
 
 ## Compile and run integration
 
@@ -148,10 +165,16 @@ When a target is supplied:
 - `CompatibilityReport` records circuit, engine and target information;
 - `CompiledArtifact` keeps the context, report and architecture fingerprint.
 
-The system does not claim physical executability. Reports may state that
-placement, routing or scheduling are still required. A physical target passed to
-`run_engine` fails explicitly because remote/physical execution is not part of
-this run.
+The system does not claim physical executability. Reports distinguish missing
+target operations, arity mismatches, paradigm mismatches, unknown hardware data
+and whether placement/routing/scheduling were not required, may be required or
+were not analyzed.
+
+`run_engine(..., target=...)` fails explicitly unless an executor-target binding
+is implemented and recorded. This prevents results produced on default local
+devices such as `AerSimulator`, `default.qubit`, Cirq Simulator or Braket
+LocalSimulator from being attributed to a different declared target. A physical
+target always fails before execution in this run.
 
 ## Current limitations
 

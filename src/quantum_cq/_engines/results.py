@@ -55,6 +55,10 @@ class EngineResult:
     native_bit_order: tuple[int, ...] = ()
     endianness: str = "clbit-desc"
     normalized: bool = False
+    context: Any = None
+    execution_backend: Any = None
+    execution_device: Any = None
+    target_usage: str = "none"
 
     def __post_init__(self) -> None:
         object.__setattr__(

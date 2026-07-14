@@ -25,7 +25,7 @@ def target_from_qiskit(value: Any, *, name: str | None = None) -> ExecutionTarge
         target_id=target_id,
         provider="qiskit",
         name=str(target_name),
-        target_type="manual",
+        target_type=_target_type(value, target, warnings),
         provider_ids={"qiskit": str(target_name)},
         paradigm="gate_model",
     )
@@ -72,16 +72,67 @@ def _num_qubits(value: Any, target: Any) -> int:
 def _operations(target: Any) -> tuple[tuple[NativeInstruction, ...], list[str]]:
     warnings: list[str] = []
     names = getattr(target, "operation_names", None)
+    if callable(names):
+        names = names()
     if names is None:
         names = getattr(target, "instructions", None)
+        if callable(names):
+            names = names()
+    if names is None and hasattr(target, "count_ops"):
+        names = tuple(dict(target.count_ops()).keys())
     if names is None:
         warnings.append("qiskit target did not expose operation names")
         return (), warnings
     operations = []
     for name in names:
-        op_name = str(getattr(name, "name", name))
+        candidate = name
+        if isinstance(name, tuple) and name:
+            candidate = name[0]
+        op_name = str(getattr(candidate, "name", candidate))
         operations.append(NativeInstruction(name=op_name, native_name=op_name, arity=_arity(op_name)))
     return tuple(operations), warnings
+
+
+def _target_type(value: Any, target: Any, warnings: list[str]) -> str:
+    if type(value).__name__ == "QuantumCircuit":
+        warnings.append("qiskit QuantumCircuit describes a circuit, not an executable target")
+        return "unknown"
+    simulator = _simulator_flag(value)
+    if simulator is None and target is not value:
+        simulator = _simulator_flag(target)
+    if simulator is True:
+        return "simulator_ideal"
+    if simulator is False:
+        return "physical"
+    if type(target).__name__ == "Target":
+        warnings.append("qiskit Target is structural; executor binding is not implied")
+        return "unknown"
+    warnings.append("qiskit target nature could not be determined")
+    return "unknown"
+
+
+def _simulator_flag(value: Any) -> bool | None:
+    for attr in ("simulator", "is_simulator"):
+        candidate = getattr(value, attr, None)
+        if isinstance(candidate, bool):
+            return candidate
+        if callable(candidate):
+            try:
+                result = candidate()
+            except Exception:
+                result = None
+            if isinstance(result, bool):
+                return result
+    configuration = getattr(value, "configuration", None)
+    if callable(configuration):
+        try:
+            config = configuration()
+        except Exception:
+            return None
+        candidate = getattr(config, "simulator", None)
+        if isinstance(candidate, bool):
+            return candidate
+    return None
 
 
 def _arity(name: str) -> int:

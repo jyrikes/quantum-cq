@@ -440,7 +440,7 @@ class CQ:
         *,
         target_id: str,
         qubits: int | tuple[str, ...],
-        operations: tuple[str, ...] | list[str],
+        operations: tuple[Any, ...] | list[Any],
         target_type: str,
         name: str | None = None,
         provider: str = "manual",

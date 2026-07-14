@@ -1,4 +1,5 @@
 import ast
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -6,7 +7,15 @@ from types import SimpleNamespace
 import pytest
 from qiskit import QuantumCircuit
 
-from quantum_cq import CQ, ExecutionContext, ExecutionTarget, TargetDatum, TargetStateSnapshot
+from quantum_cq import (
+    CQ,
+    ExecutionContext,
+    ExecutionTarget,
+    NativeInstruction,
+    TargetDatum,
+    TargetStateSnapshot,
+    TopologyEdge,
+)
 from quantum_cq._engines.errors import CapabilityMismatchError
 from quantum_cq._hardware.bundle import HardwareProviderBundle
 from quantum_cq._hardware.models import ExecutionTargetDescriptor, NativeInstruction, TargetArchitecture
@@ -81,19 +90,79 @@ def test_hardware_provider_bundle_rejects_mixed_provider_ports():
 
 def test_hardware_service_serializes_and_deserializes_neutral_target():
     service = HardwareService()
+    datum = TargetDatum("known", value=12.5, unit="ns")
+    snapshot = TargetStateSnapshot(
+        snapshot_id="snap-noisy",
+        target_id="noisy",
+        collected_at=datetime.now(timezone.utc),
+        qubit_properties={"a": {"t1": datum}},
+    )
     target = service.manual_target(
         target_id="noisy",
         qubits=("a", "b"),
-        operations=("x", "cx", "measure"),
+        operations=(
+            NativeInstruction("x", valid_qubits=("a", "b")),
+            NativeInstruction("cx", arity=2, valid_connections=(("a", "b"),)),
+            "measure",
+        ),
         target_type="simulator_noisy",
+        topology=(TopologyEdge("a", "b", directed=True, operations=("cx",)),),
+        snapshot=snapshot,
     )
 
     payload = service.serialize(target)
-    restored = service.deserialize(payload)
+    encoded = json.dumps(payload)
+    restored = service.deserialize(json.loads(encoded))
 
     assert payload["schema_version"] == "run3.hardware.v1"
     assert restored.descriptor.target_id == "noisy"
     assert restored.architecture.qubits == ("a", "b")
+    assert restored.snapshot is not None
+    assert restored.snapshot.qubit_properties["a"]["t1"].value == 12.5
+    assert restored.architecture.topology[0].operations == ("cx",)
+
+
+def test_hardware_deserialize_rejects_unknown_schema():
+    target = HardwareService().manual_target(
+        target_id="schema",
+        qubits=1,
+        operations=("x",),
+        target_type="simulator_ideal",
+    )
+    payload = HardwareService().serialize(target)
+    payload["schema_version"] = "future"
+
+    with pytest.raises(ValueError, match="schema_version"):
+        HardwareService().deserialize(payload)
+
+
+def test_hardware_fingerprint_is_structural_not_alias_based():
+    first = HardwareService().manual_target(
+        target_id="alias_a",
+        qubits=("q0", "q1"),
+        operations=("x", "cx"),
+        target_type="simulator_ideal",
+        aliases=("a",),
+        topology=(("q0", "q1"),),
+    )
+    second = HardwareService().manual_target(
+        target_id="alias_b",
+        qubits=("q0", "q1"),
+        operations=("x", "cx"),
+        target_type="simulator_ideal",
+        aliases=("b",),
+        topology=(("q0", "q1"),),
+    )
+    different = HardwareService().manual_target(
+        target_id="different",
+        qubits=("q0", "q1"),
+        operations=("x",),
+        target_type="simulator_ideal",
+        topology=(),
+    )
+
+    assert first.architecture.fingerprint == second.architecture.fingerprint
+    assert first.architecture.fingerprint != different.architecture.fingerprint
 
 
 def test_qiskit_provider_uses_explicit_object_without_remote_discovery():
@@ -107,6 +176,32 @@ def test_qiskit_provider_uses_explicit_object_without_remote_discovery():
     assert qiskit_target.descriptor.name == "explicit_circuit"
     assert qiskit_target.provenance.source == "explicit_object"
     assert qiskit_target.architecture.num_qubits == 2
+    assert qiskit_target.descriptor.target_type == "unknown"
+
+
+def test_qiskit_provider_classifies_backend_nature_without_remote_discovery():
+    class FakeConfig:
+        simulator = False
+
+    class FakeBackend:
+        name = "fake_real"
+        num_qubits = 2
+        target = SimpleNamespace(num_qubits=2, operation_names=("x", "measure"), name="fake_real_target")
+
+        def configuration(self):
+            return FakeConfig()
+
+    class FakeSimulator(FakeBackend):
+        name = "fake_sim"
+
+        def configuration(self):
+            return SimpleNamespace(simulator=True)
+
+    physical = target_from_qiskit(FakeBackend())
+    simulator = target_from_qiskit(FakeSimulator())
+
+    assert physical.descriptor.target_type == "physical"
+    assert simulator.descriptor.target_type == "simulator_ideal"
 
 
 def test_compile_records_execution_context_without_claiming_physical_execution():
@@ -151,6 +246,111 @@ def test_run_engine_rejects_physical_target_before_sdk_execution():
 
     with pytest.raises(CapabilityMismatchError, match="target fisico"):
         CQ.run_engine(_measured_bell(), engine="qiskit", target=target, shots=4)
+
+
+def test_run_engine_rejects_unbound_analysis_target_before_execution():
+    target = CQ.manual_target(
+        target_id="analysis_only",
+        qubits=2,
+        operations=["x", "h", "cx", "measure"],
+        target_type="simulator_ideal",
+    )
+
+    with pytest.raises(CapabilityMismatchError, match="apenas analisado"):
+        CQ.run_engine(_measured_bell(), engine="qiskit", target=target, shots=4)
+
+
+def test_execution_context_rejects_conflicting_engine_shots_and_target():
+    target = CQ.manual_target(
+        target_id="ctx_a",
+        qubits=2,
+        operations=["x", "h", "cx", "measure"],
+        target_type="simulator_ideal",
+    )
+    other = CQ.manual_target(
+        target_id="ctx_b",
+        qubits=2,
+        operations=["x", "h", "cx", "measure"],
+        target_type="simulator_ideal",
+    )
+    context = ExecutionContext(engine="cirq", target=target, shots=4)
+
+    with pytest.raises(CapabilityMismatchError, match="engine"):
+        CQ.compile(_measured_bell(), engine="qiskit", context=context)
+
+    context = ExecutionContext(engine="qiskit", target=target, shots=4)
+    with pytest.raises(CapabilityMismatchError, match="shots"):
+        CQ.run_engine(_measured_bell(), engine="qiskit", context=context, shots=8)
+
+    context = ExecutionContext(engine="qiskit", target=target)
+    with pytest.raises(CapabilityMismatchError, match="target"):
+        CQ.compile(_measured_bell(), engine="qiskit", target=other, context=context)
+
+
+def test_hardware_models_reject_incoherent_snapshots_and_topology():
+    snapshot = TargetStateSnapshot(
+        snapshot_id="other",
+        target_id="other",
+        collected_at=datetime.now(timezone.utc),
+    )
+    target = CQ.manual_target(
+        target_id="main",
+        qubits=1,
+        operations=["x"],
+        target_type="simulator_ideal",
+    )
+
+    with pytest.raises(ValueError, match="outro target"):
+        ExecutionTarget(
+            descriptor=target.descriptor,
+            architecture=target.architecture,
+            snapshot=snapshot,
+        )
+
+    with pytest.raises(ValueError, match="qubit inexistente"):
+        TargetArchitecture(
+            architecture_id="bad",
+            qubits=("q0",),
+            topology=(TopologyEdge("q0", "q1"),),
+        )
+
+
+def test_hardware_compatibility_checks_operations_arity_and_paradigm():
+    missing_cx = CQ.manual_target(
+        target_id="missing_cx",
+        qubits=2,
+        operations=["x", "h", "measure"],
+        target_type="simulator_ideal",
+    )
+    report = CQ.compatibility(_measured_bell(), engine="qiskit", target=missing_cx)
+
+    assert report.status == "incompatible"
+    assert "operation:cx" in report.missing
+
+    wrong_paradigm = CQ.manual_target(
+        target_id="wrong_paradigm",
+        qubits=2,
+        operations=["x", "h", "cx", "measure"],
+        target_type="simulator_ideal",
+        paradigm="annealing",
+    )
+    report = CQ.compatibility(_measured_bell(), engine="qiskit", target=wrong_paradigm)
+
+    assert "target_paradigm" in report.missing
+
+    one_qubit = CQ.manual_target(
+        target_id="one",
+        qubits=1,
+        operations=["h", "measure"],
+        target_type="simulator_ideal",
+    )
+    circuit = CQ.circuit(1, 1)
+    circuit.h(0)
+    circuit.measure(0, 0)
+    report = CQ.compatibility(circuit, engine="qiskit", target=one_qubit)
+
+    assert report.hardware["placement_status"] == "not_required"
+    assert report.hardware["routing_status"] == "not_required"
 
 
 def test_hardware_domain_and_service_do_not_import_sdks_or_circuit_concretes():
