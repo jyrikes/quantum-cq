@@ -16,8 +16,10 @@ def test_coined_quantum_walk_builds_unitary_for_cycle_graph():
     assert walk.metadata["role"] == "quantum_walk"
     assert walk.metadata["uses_addressed_navigation_semantics"] is True
     assert walk.metadata["navigation_source"] == "graph_navigation"
-    assert walk.metadata["shift_model"] == "explicit_permutation"
-    assert walk.metadata["status"] == "implemented_mvp"
+    assert walk.metadata["shift_model"] == "flip_flop"
+    assert walk.metadata["evolution_convention"] == "W = S C"
+    assert walk.metadata["lowering_strategy"] == "dense_exact"
+    assert walk.metadata["status"] == "implemented_exact_dense"
 
     matrix = np.asarray(Operator(CQ.to_qiskit(walk)).data, dtype=complex)
     identity = np.eye(matrix.shape[0])
