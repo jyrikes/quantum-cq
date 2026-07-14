@@ -266,7 +266,11 @@ class QiskitExecutorPort:
             engine=self.engine_id,
             native_result=raw,
             backend=simulator,
-            metadata={"shots": shots, "backend": getattr(simulator, "name", None)},
+            metadata={
+                "shots": shots,
+                "backend": getattr(simulator, "name", None),
+                "compiled_artifact_identity": id(artifact),
+            },
         )
 
 

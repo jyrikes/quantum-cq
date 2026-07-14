@@ -58,6 +58,7 @@ class _CQPipelineBuilder:
         self._placement: str | None = None
         self._routing: str | None = None
         self._scheduling: str | None = None
+        self._native_transpilation_policy = "allow_native_refinement"
         self._stages: tuple[str, ...] = ()
         self._stop_after: str | None = None
         self._scenarios: tuple[dict[str, Any], ...] = ()
@@ -157,10 +158,13 @@ class _CQPipelineBuilder:
         placement: str | None = None,
         routing: str | None = None,
         scheduling: str | None = None,
+        native_transpilation_policy: str | None = None,
     ) -> "_CQPipelineBuilder":
         self._placement = placement
         self._routing = routing
         self._scheduling = scheduling
+        if native_transpilation_policy is not None:
+            self._native_transpilation_policy = native_transpilation_policy
         return self
 
     def with_stages(self, *stages: str, stop_after: str | None = None) -> "_CQPipelineBuilder":
@@ -247,6 +251,7 @@ class _CQPipelineBuilder:
             placement=self._placement,
             routing=self._routing,
             scheduling=self._scheduling,
+            native_transpilation_policy=self._native_transpilation_policy,
             stages=self._stages,
             stop_after=self._stop_after,
             scenarios=self._scenarios,
@@ -277,6 +282,7 @@ class CQ:
         placement: str | None = None,
         routing: str | None = None,
         scheduling: str | None = None,
+        native_transpilation_policy: str = "allow_native_refinement",
         stages: Sequence[str] | None = None,
         stop_after: str | None = None,
         scenarios: Sequence[dict[str, Any]] | None = None,
@@ -322,7 +328,12 @@ class CQ:
         if target is not None:
             builder.with_target(target, snapshot=snapshot)
         builder.with_runtime(shots=shots, measurement=measurement, **(runtime_options or {}))
-        builder.with_strategy(placement=placement, routing=routing, scheduling=scheduling)
+        builder.with_strategy(
+            placement=placement,
+            routing=routing,
+            scheduling=scheduling,
+            native_transpilation_policy=native_transpilation_policy,
+        )
         if stages is not None or stop_after is not None:
             builder.with_stages(*(tuple(stages or ())), stop_after=stop_after)
         if scenarios is not None:

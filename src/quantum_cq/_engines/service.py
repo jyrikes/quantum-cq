@@ -90,13 +90,16 @@ class EngineService:
     def compile(self, circuit_like: Any, engine: str = "qiskit", **options: Any) -> CompiledArtifact:
         target = options.pop("target", None)
         context = options.pop("context", None)
+        measurement_policy = str(options.pop("measurement", "preserve")).lower()
+        if measurement_policy not in {"auto", "preserve", "all", "none"}:
+            raise ValueError(f"measurement invalido: {measurement_policy}")
         bundle = self._available_bundle(engine)
         capabilities = bundle.capabilities.capabilities()
         availability = bundle.availability.availability()
         source, contract = self._source_and_contract(
             circuit_like,
             bundle=bundle,
-            policy="preserve",
+            policy=measurement_policy,  # type: ignore[arg-type]
             for_execution=False,
         )
         descriptor = self._circuit_service.descriptor(circuit_like, engine=bundle.engine_id)
@@ -105,7 +108,7 @@ class EngineService:
             engine=bundle.engine_id,
             target=target,
             context=context,
-            measurement_policy="preserve",
+            measurement_policy=measurement_policy,
             shots=options.get("shots"),
             options=options,
         )
@@ -125,6 +128,71 @@ class EngineService:
             availability=availability,
             lowering_rules=report.lowerings,
             **options,
+        )
+        return replace(
+            artifact,
+            context=execution_context,
+            compatibility_report=report,
+            circuit_descriptor=descriptor,
+            circuit_requirements=circuit_requirements,
+            target_fingerprint=None
+            if execution_context is None or execution_context.architecture is None
+            else execution_context.architecture.fingerprint,
+        )
+
+    def compile_for_execution(
+        self,
+        circuit_like: Any,
+        engine: str = "qiskit",
+        *,
+        shots: int = 1024,
+        measurement: str = "auto",
+        **options: Any,
+    ) -> CompiledArtifact:
+        target = options.pop("target", None)
+        context = options.pop("context", None)
+        policy = str(measurement).lower()
+        if policy not in {"auto", "preserve", "all", "none"}:
+            raise ValueError(f"measurement invalido: {policy}")
+        bundle = self._available_bundle(engine)
+        capabilities = bundle.capabilities.capabilities()
+        availability = bundle.availability.availability()
+        source, contract = self._source_and_contract(
+            circuit_like,
+            bundle=bundle,
+            policy=policy,  # type: ignore[arg-type]
+            for_execution=True,
+        )
+        report = self._require_compatible(bundle.engine_id, source, capabilities, contract)
+        descriptor = self._circuit_service.descriptor(circuit_like, engine=bundle.engine_id)
+        circuit_requirements = self._circuit_service.requirements(circuit_like, engine=bundle.engine_id)
+        execution_context = self._execution_context(
+            engine=bundle.engine_id,
+            target=target,
+            context=context,
+            measurement_policy=policy,
+            shots=shots,
+            options=options,
+        )
+        report = self._with_hardware_context(report, execution_context, circuit_requirements)
+        emitted = bundle.emitter.emit(
+            source,
+            measurement_contract=contract,
+            capabilities=capabilities,
+            **options,
+        )
+        compile_options = dict(options)
+        compile_options["shots"] = shots
+        if bundle.engine_id == "qiskit":
+            compile_options["__execution_measurement_policy"] = policy
+        artifact = bundle.compiler.compile(
+            emitted,
+            source_ir=source if isinstance(source, CircuitIR) else None,
+            measurement_contract=contract,
+            capabilities=capabilities,
+            availability=availability,
+            lowering_rules=report.lowerings,
+            **compile_options,
         )
         return replace(
             artifact,
@@ -168,54 +236,14 @@ class EngineService:
             policy = str(options.pop("measurement", "auto")).lower()
             if policy not in {"auto", "preserve", "all", "none"}:
                 raise ValueError(f"measurement invalido: {policy}")
-            capabilities = bundle.capabilities.capabilities()
-            availability = bundle.availability.availability()
-            source, contract = self._source_and_contract(
+            artifact = self.compile_for_execution(
                 circuit_like,
-                bundle=bundle,
-                policy=policy,  # type: ignore[arg-type]
-                for_execution=True,
-            )
-            report = self._require_compatible(bundle.engine_id, source, capabilities, contract)
-            descriptor = self._circuit_service.descriptor(circuit_like, engine=bundle.engine_id)
-            circuit_requirements = self._circuit_service.requirements(circuit_like, engine=bundle.engine_id)
-            execution_context = self._execution_context(
                 engine=bundle.engine_id,
+                shots=shots,
+                measurement=policy,
                 target=target,
                 context=context,
-                measurement_policy=policy,
-                shots=shots,
-                options=options,
-            )
-            report = self._with_hardware_context(report, execution_context, circuit_requirements)
-            emitted = bundle.emitter.emit(
-                source,
-                measurement_contract=contract,
-                capabilities=capabilities,
                 **options,
-            )
-            compile_options = dict(options)
-            compile_options["shots"] = shots
-            if bundle.engine_id == "qiskit":
-                compile_options["__execution_measurement_policy"] = policy
-            artifact = bundle.compiler.compile(
-                emitted,
-                source_ir=source if isinstance(source, CircuitIR) else None,
-                measurement_contract=contract,
-                capabilities=capabilities,
-                availability=availability,
-                lowering_rules=report.lowerings,
-                **compile_options,
-            )
-            artifact = replace(
-                artifact,
-                context=execution_context,
-                compatibility_report=report,
-                circuit_descriptor=descriptor,
-                circuit_requirements=circuit_requirements,
-                target_fingerprint=None
-                if execution_context is None or execution_context.architecture is None
-                else execution_context.architecture.fingerprint,
             )
 
         self._reject_unimplemented_physical_execution(artifact)
