@@ -8,6 +8,7 @@ include notebooks/quantum_cq_full_pipeline_navigation.ipynb
 include notebooks/quantum_cq_getting_started.ipynb
 include notebooks/quantum_cq_ibm_real_smoke.ipynb
 include notebooks/quantum_cq_simple_api_lab.ipynb
+include notebooks/quantum_cq_teoria_biblioteca_demo.ipynb
 prune .pytest_cache
 prune .vscode
 prune logs

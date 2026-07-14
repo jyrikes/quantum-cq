@@ -77,6 +77,12 @@ The maintained introductory notebook is:
 notebooks/quantum_cq_getting_started.ipynb
 ```
 
+The presentation-oriented demo notebook is:
+
+```text
+notebooks/quantum_cq_teoria_biblioteca_demo.ipynb
+```
+
 ## IBM Runtime
 
 IBM execution is optional and requires `quantum-cq[ibm]`. Credentials are

@@ -58,6 +58,17 @@ notebooks/quantum_cq_full_pipeline_navigation.ipynb
 It shows input data, query circuits, pipeline stages, snapshots, native
 transpilation records, measurements and V1/V2 data recovery.
 
+The presentation-oriented theory and library demo is:
+
+```text
+notebooks/quantum_cq_teoria_biblioteca_demo.ipynb
+```
+
+It shows the same public architecture in a slide-friendly flow, including a
+batch perceptron circuit, before/after transpilation snapshots, canonical
+measurements, a Bernstein-Vazirani example and Navigation V2 logical-to-physical
+qubit mapping.
+
 ## Limits
 
 This release does not claim physical QRAM, quantum advantage, automatic backend

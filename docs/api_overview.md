@@ -260,3 +260,10 @@ For a full pipeline walkthrough with navigation and data recovery, open:
 ```text
 notebooks/quantum_cq_full_pipeline_navigation.ipynb
 ```
+
+For a presentation-oriented theory and library demo with perceptron, pipeline
+snapshots, measurements and Navigation V2 qubit mapping, open:
+
+```text
+notebooks/quantum_cq_teoria_biblioteca_demo.ipynb
+```
