@@ -30,6 +30,7 @@ Documentacao versionavel:
 
 Notebooks oficiais pequenos e mantidos:
 
+- `notebooks/quantum_cq_getting_started.ipynb`
 - `notebooks/quantum_cq_simple_api_lab.ipynb`
 - `notebooks/quantum_cq_ibm_real_smoke.ipynb`
 

@@ -91,7 +91,29 @@ for item in (deutsch, bv, dj, grover, qpe):
     print(item.algorithm_name, CQ.metrics(item))
 ```
 
-## 7. Operators And Primitives
+## 7. Public Logical Circuits
+
+```python
+from quantum_cq import CQ
+
+bell = CQ.circuit(2, 2, name="bell")
+bell.h(0)
+bell.cx(0, 1)
+bell.measure(0, 0)
+bell.measure(1, 1)
+
+ir = bell.build()
+qc = CQ.emit(ir, engine="qiskit")
+
+print(ir.name)
+print(qc.num_qubits, qc.depth())
+```
+
+`CQ.circuit(...)` builds a SDK-free logical circuit first. Emission to Qiskit,
+PennyLane, Cirq or Braket is handled by the engine layer when the requested
+engine is installed and supports the required operations.
+
+## 8. Operators And Primitives
 
 ```python
 from quantum_cq import CQ
@@ -105,7 +127,93 @@ print(CQ.metrics(qft))
 print(CQ.metrics(phase_rotation))
 ```
 
-## 8. Experiment Pipeline
+## 9. Engine APIs
+
+```python
+from quantum_cq import CQ
+
+print(CQ.engines())
+print(CQ.engine_capabilities("qiskit"))
+
+circuit = CQ.circuit(1, 1)
+circuit.h(0)
+circuit.measure(0, 0)
+
+compiled = CQ.compile(circuit, engine="qiskit")
+print(compiled.engine)
+```
+
+The legacy exporter registry remains separate:
+
+```python
+assert CQ.available_exporters() == ["qiskit"]
+```
+
+## 10. Unified Pipeline
+
+```python
+from quantum_cq import CQ
+
+legacy = CQ.pipeline([1, 0, 1], encoding="basis").build()
+enriched = CQ.pipeline(equation="|psi> := H[q0] * |0>").transpile()
+
+print(legacy.encoding_name)
+print(enriched.scenario_results[0].status)
+```
+
+Legacy `data + encoding` build/run calls preserve their historical return
+types. Enriched calls such as `transpile()`, builder `compile()` and builder
+`run_engine()` return `PipelineResult`.
+
+## 11. Navigation Encoding V2
+
+```python
+from quantum_cq import CQ, StructuralField, StructuralHeap, StructuralNode, StructuralSelector, StructuralType
+
+node_type = StructuralType(
+    "Node",
+    (
+        StructuralField("payload", "uint", bit_width=2, semantic_role="value"),
+        StructuralField("link", "reference", nullable=True, semantic_role="next"),
+    ),
+)
+heap = StructuralHeap(
+    (node_type,),
+    (
+        StructuralNode("tail", "Node", {"payload": 2, "link": None}),
+        StructuralNode("head", "Node", {"payload": 1, "link": "tail"}),
+    ),
+    roots=("head",),
+)
+
+result = CQ.navigation_v2(heap, operation="read", selector=StructuralSelector.value("payload"))
+print(result.plan.equivalence_class.equivalence_fingerprint)
+print(result.circuit_format)
+```
+
+Navigation V2 is explicit and finite. It does not replace the V1 addressed
+memory path.
+
+## 12. Hardware Descriptors
+
+```python
+from quantum_cq import CQ
+
+target = CQ.manual_target(
+    target_id="ideal-two-qubit",
+    qubits=2,
+    operations=("h", "cx", "measure"),
+    topology=(("q0", "q1"),),
+    target_type="simulator_ideal",
+)
+
+print(target.descriptor.target_id)
+```
+
+Manual targets are SDK-free descriptors. They do not imply remote execution or
+backend selection.
+
+## 13. Experiment Pipeline
 
 ```python
 from quantum_cq import CQ
@@ -126,7 +234,7 @@ Local simulation may require:
 pip install "quantum-cq[aer]"
 ```
 
-## 9. Notebook Display
+## 14. Notebook Display
 
 ```python
 from quantum_cq import CQ
@@ -139,4 +247,10 @@ For rich drawings, install:
 
 ```bash
 pip install "quantum-cq[notebook]"
+```
+
+For a step-by-step walkthrough, open:
+
+```text
+notebooks/quantum_cq_getting_started.ipynb
 ```

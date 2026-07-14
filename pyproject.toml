@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quantum-cq"
-version = "0.1.2"
+version = "0.2.0"
 description = "Compact quantum circuit helpers, encodings, algorithms, navigation and Qiskit interop."
 readme = "README.md"
 requires-python = ">=3.10"

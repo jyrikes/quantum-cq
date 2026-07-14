@@ -44,7 +44,7 @@ covered by lowering plus semantic behavior tests for the supported subset.
 
 ## Notes
 
-- Qiskit is the default and reference engine in `0.1.x`.
+- Qiskit is the default and reference engine in `0.2.0`.
 - PennyLane, Cirq and Braket are optional extras and are validated in isolated
   virtual environments.
 - Braket support is local-simulator only in Run 2; tests must not require AWS

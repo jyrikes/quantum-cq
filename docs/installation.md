@@ -47,8 +47,8 @@ pip install "quantum-cq[all]"
 | `notebook` | `pandas`, `matplotlib`, `pylatexenc`, `ipython`, `ipywidgets` | Notebook display, figures and dataframes. |
 | `all` | Aer, IBM Runtime and notebook extras | Existing Qiskit runtime/notebook bundle; it does not install all optional engines. |
 
-Qiskit is a required dependency in the `0.1.x` series. There is no
-`quantum-cq[qiskit]` extra.
+Qiskit is a required dependency in `0.2.0` and remains the default reference
+engine. There is no `quantum-cq[qiskit]` extra.
 
 PennyLane, Cirq and Braket should be installed only when those engines are
 needed. CUDA-Q support depends on the operating system and Python environment;
@@ -69,6 +69,12 @@ from quantum_cq import CQ
 
 encoded = CQ.state([1, 0, 1], encoding="basis")
 CQ.show(encoded)
+```
+
+The maintained introductory notebook is:
+
+```text
+notebooks/quantum_cq_getting_started.ipynb
 ```
 
 ## IBM Runtime

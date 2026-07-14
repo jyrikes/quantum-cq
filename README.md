@@ -62,7 +62,8 @@ Dependency groups:
 | `quantum-cq[cudaq]` | `cudaq` | CUDA-Q experiments in supported environments. |
 | `quantum-cq[all]` | Aer, IBM Runtime and notebook extras | Existing Qiskit runtime/notebook bundle; not all optional engines. |
 
-Qiskit is required in `0.1.x`; there is no `quantum-cq[qiskit]` extra.
+Qiskit remains a required dependency and the default reference engine in
+`0.2.0`; there is no `quantum-cq[qiskit]` extra.
 
 More detail:
 https://github.com/jyrikes/quantum-cq/blob/main/docs/installation.md
@@ -400,11 +401,34 @@ Aliases accepted by `CQ.nav(...)` include `explicit`, `sparse`, `qram`,
 - High-level `CQ` facade.
 - Classical state encoders.
 - Navigation encoder for addressed memory.
-- Graph navigation and small quantum-walk MVP.
+- Graph navigation and exact finite coined quantum walk support.
+- Explicit Navigation Encoding V2 for finite typed structural heaps.
+- Public logical circuit builder, custom unitary support and CircuitIR flow.
+- Lazy multi-engine facade for Qiskit, PennyLane, Cirq, Braket and CUDA-Q
+  capability checks.
+- Unified pipeline for data, equations, circuits and structural navigation
+  inputs.
+- SDK-free hardware target descriptors and manual target modeling.
 - Qiskit circuit export.
 - Structural circuit metrics.
 - Runtime abstraction and experiment pipeline.
 - Optional Aer, IBM Runtime and notebook integrations.
+
+## Current Release
+
+`0.2.0` integrates the RUN 1 to RUN 4.3 architecture work:
+
+- multi-engine contracts with Qiskit as the required default engine;
+- CircuitService, custom circuits and unitary payloads;
+- hardware abstraction descriptors and Qiskit topology extraction from explicit
+  objects;
+- MQT equation input through the unified pipeline;
+- exact finite coined quantum walk semantics;
+- Navigation Encoding V2 for typed finite structures with explicit lowering to
+  the existing V1 XOR-load model.
+
+See `docs/release_0_2_0.md` for the release summary and
+`docs/navigation_v2_structural_encoding.md` for the V1/V2 navigation split.
 
 ## Example Scripts
 
@@ -425,8 +449,8 @@ python examples/basic_navigation.py
 ## Project Status
 
 `quantum-cq` is an early research-oriented package. The public API is centered
-on the `CQ` facade and may evolve, but the `0.1.x` series aims to preserve the
-documented examples.
+on the `CQ` facade and may evolve, but the `0.2.x` series preserves the
+documented V1 navigation behavior while exposing V2 through explicit APIs.
 
 ## Safety Notes
 

@@ -1,7 +1,7 @@
 # Navigation v1 Contract
 
 Navigation v1 is the stable addressed-memory behavior shipped in `quantum-cq`
-`0.1.x`. It remains Qiskit-exportable by default and must preserve its public
+`0.1.x` and `0.2.x`. It remains Qiskit-exportable by default and must preserve its public
 API, metadata, and bit ordering.
 
 ## Mathematical Contract
